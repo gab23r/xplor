@@ -1,0 +1,13 @@
+{
+    "python.analysis.typeCheckingMode": "standard",
+    "python.analysis.ignore": ["typings"],
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.codeActionsOnSave": {
+        "source.organizeImports": "explicit"
+    },
+    "python.testing.pytestArgs": [
+        "tests"
+    ],
+    "python.testing.pytestEnabled": true,
+}
