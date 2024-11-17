@@ -1,49 +1,21 @@
 import ast
 import re
 
-import gurobipy as gp
 import polars as pl
 
 
-def add_constrs_from_dataframe_args(
-    df: pl.DataFrame,
-    model: gp.Model,
-    lhs: float | pl.Expr | pl.Series,
-    sense: str,
-    rhs: float | pl.Expr | pl.Series,
-    name: str | None,
-) -> list[gp.QConstr | gp.Constr]:
-    rows = df.select(lhs=lhs, rhs=rhs).rows()
-    first_lhs = rows[0][0]
-    first_rhs = rows[0][1]
-
-    if isinstance(first_rhs, gp.GenExprOr | gp.GenExprAbs):
-        _add_constr = model.addConstr
-    elif isinstance(first_lhs, gp.QuadExpr | gp.QuadExpr):
-        _add_constr = model.addQConstr
-    else:
-        _add_constr = model.addLConstr
-
-    if sense in ("<=", "<"):
-        operator = "__le__"
-    elif sense in (">=", ">"):
-        operator = "__ge__"
-    elif sense in ("==", "="):
-        operator = "__eq__"
-    else:
-        msg = f"sense should be one of ('<=', '>=', '=='), got {sense}"
-        raise Exception(msg)
-
-    name = name or ""
-    constrs = [
-        _add_constr(
-            getattr(lhs, operator)(rhs),
-            name=name,
+def format_indices(df: pl.DataFrame, name: str, indices: list[str]) -> list[str]:
+    return (
+        df.select(
+            pl.format(
+                "{}[{}]",
+                pl.lit(name),
+                pl.concat_str(indices, separator=","),
+            )
         )
-        for lhs, rhs in rows
-    ]
-
-    return constrs
+        .to_series(0)
+        .to_list()
+    )
 
 
 def evaluate_comp_expr(df: pl.DataFrame, expr: str) -> tuple[pl.Series, str, pl.Series]:

@@ -1,11 +1,15 @@
 [project]
 name = "xplor"
-version = "0.1.1"
-description = "Add your description here"
+version = "0.2.0"
+description = "A unified framework for Operation Research modeling with polars"
 readme = "README.md"
-requires-python = ">=3.11"
+authors = [
+    { name = "Gabriel Robin" }
+]
+license = { text = "MIT" }
+requires-python = ">=3.12"
 dependencies = [
-    "polars>=1.9",
+    "polars>=1.15",
 ]
 
 [project.optional-dependencies]
@@ -13,6 +17,10 @@ gurobi = [
     "gurobipy>=11.0.3",
     "numpy>=2.1.2",
 ]
+ortools = [
+    "ortools>=9.11.4210",
+]
+
 
 [build-system]
 requires = ["hatchling"]
@@ -25,11 +33,14 @@ packages = ["src/xplor"]
 dev-dependencies = [
     "mypy>=1.11.2",
     "pytest>=8.3.3",
-    "ruff>=0.6.9",
+    "ruff>=0.8",
 ]
+
+[[tool.uv.index]]
+url = "https://pypi.python.org/simple"
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 fix = true
 
 [tool.ruff.lint]
@@ -53,7 +64,7 @@ select = [
   "PYI", # flake8-pyi
   "RUF", # ruff-specific rules
   "SIM", # flake8-simplify
-  "TCH", # flake8-type-checking
+  "TC", # flake8-type-checking
   "TD", # flake8-todos
   "TID", # flake8-tidy-imports
   "TRY", # tryceratops
@@ -63,5 +74,11 @@ select = [
 
 ignore = [
   "D100", # Missing docstring in public module
+  "ANN401", # Dynamically typed expressions (typing.Any) are disallowed in `**kwargs`
   "TRY002", # Create your own exception
+  "D203", # one-blank-line-before-class
+  "D213", # multi-line-summary-second-line
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["D100", "D102", "D103", "B018", "FBT001"]

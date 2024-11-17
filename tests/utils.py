@@ -1,12 +1,16 @@
+from collections.abc import Generator
+
 import gurobipy as gp
 import pytest
-import xplor  # noqa: F401
+
+from xplor.gurobi import XplorGurobi
 
 
 @pytest.fixture
-def model():
+def xmodel() -> Generator[XplorGurobi]:
     env = gp.Env()
     model = gp.Model(env=env)
-    yield model
+    xplor = XplorGurobi(model)
+    yield xplor
     model.close()
     env.close()
