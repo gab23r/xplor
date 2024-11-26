@@ -1,6 +1,6 @@
 [project]
 name = "xplor"
-version = "0.2.0"
+version = "0.2.1"
 description = "A unified framework for Operation Research modeling with polars"
 readme = "README.md"
 authors = [
