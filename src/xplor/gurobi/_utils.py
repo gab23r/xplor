@@ -37,7 +37,7 @@ def add_constrs_from_dataframe_args(
 
     lhs_constr_type = str(type(rows[0][0]))
     rhs_constr_type = str(type(rows[0][1]))
-    if "GenExpr" in lhs_constr_type:
+    if "GenExpr" in lhs_constr_type or "GenExpr" in rhs_constr_type:
         _add_constr = model.addConstr
     elif "QuadExpr" in lhs_constr_type or "QuadExpr" in rhs_constr_type:
         _add_constr = model.addQConstr
