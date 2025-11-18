@@ -1,7 +1,7 @@
 import gurobipy as gp
 import polars as pl
 
-from xplor.gurobi import XplorGurobi, apply_eval, quicksum
+from xplor.gurobi import XplorGurobi, apply_eval, quicksum, read_value
 
 
 def test_gurobi_model(xmodel: XplorGurobi) -> None:
@@ -26,6 +26,9 @@ def test_gurobi_model(xmodel: XplorGurobi) -> None:
         )
         .pipe(apply_eval, "y = 2 * x - c")
         .group_by("i")
-        .agg(quicksum("y"), pl.col("c").min())
+        .agg(quicksum(pl.col("x", "y")), pl.col("c").min())
         .pipe(xmodel.add_constrs, "y <= c", name="constr")
     )
+
+    xmodel.model.optimize()
+    assert df.select(read_value("x").sum()).item() == 0

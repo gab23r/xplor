@@ -56,7 +56,7 @@ def first(expr: pl.Expr | str) -> pl.Expr:
     """
     if isinstance(expr, str):
         expr = pl.col(expr)
-    return expr.map_elements(lambda d: d[0], return_dtype=pl.Object)
+    return expr.map_batches(lambda d: d[0], return_dtype=pl.Object, returns_scalar=True)
 
 
 def last(expr: pl.Expr | str) -> pl.Expr:
@@ -79,7 +79,7 @@ def last(expr: pl.Expr | str) -> pl.Expr:
     """
     if isinstance(expr, str):
         expr = pl.col(expr)
-    return expr.map_elements(lambda d: d[-1], return_dtype=pl.Object)
+    return expr.map_batches(lambda d: d[-1], return_dtype=pl.Object, returns_scalar=True)
 
 
 def quicksum(expr: pl.Expr | str) -> pl.Expr:
@@ -102,7 +102,7 @@ def quicksum(expr: pl.Expr | str) -> pl.Expr:
     """
     if isinstance(expr, str):
         expr = pl.col(expr)
-    return expr.map_elements(gp.quicksum, return_dtype=pl.Object)
+    return expr.map_batches(gp.quicksum, return_dtype=pl.Object, returns_scalar=True)
 
 
 def any(expr: pl.Expr | str) -> pl.Expr:
@@ -125,7 +125,9 @@ def any(expr: pl.Expr | str) -> pl.Expr:
     """
     if isinstance(expr, str):
         expr = pl.col(expr)
-    return expr.map_elements(lambda d: gp.or_(d.to_list()), return_dtype=pl.Object)
+    return expr.map_batches(
+        lambda d: gp.or_(d.to_list()), return_dtype=pl.Object, returns_scalar=True
+    )
 
 
 def abs(expr: pl.Expr | str) -> pl.Expr:
@@ -179,5 +181,6 @@ def read_value(expr: pl.Expr | str) -> pl.Expr:
         pl.Series([e.x for e in s])
         if s.len() and hasattr(s[0], "X")
         # in case of a linExpr
-        else pl.Series([e.getValue() for e in s])
+        else pl.Series([e.getValue() for e in s]),
+        return_dtype=pl.Float64,
     )
