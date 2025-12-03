@@ -1,156 +1,135 @@
-from typing import TYPE_CHECKING
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
-import xplor._dependencies as _dependencies
+from xplor._utils import parse_into_expr, series_to_df
+from xplor.var import VarType
 
 if TYPE_CHECKING:
     import gurobipy as gp
     from ortools.math_opt.python import mathopt
 
-    from xplor.gurobi.model import XplorGurobi
+    from xplor.obj_expr import ObjExpr
 
 
-class Xplor[M: "gp.Model | mathopt.Model"]:
-    """Xplor base class to wrap your OR model."""
+class XplorModel(ABC):
+    """Abstract base class for all Xplor optimization model wrappers.
 
-    _backend: "XplorGurobi"
+    Defines the core interface for adding variables and constraints
+    to the underlying optimization model (e.g., MathOpt, Gurobi, etc.).
+    """
 
-    def __init__(self, model: M, *, deterministic: bool = False, auto_update: bool = False) -> None:
-        """Initialize an Xplor instance.
+    def __init__(self, model: gp.Model | mathopt.Model) -> None:
+        """Initialize the model wrapper.
 
-        Parameters
-        ----------
-        model : gp.Model or math_opt.Model
-            The Model to wrap
-        deterministic : bool, default=False
-            Whether to ensure deterministic behavior when creating variables.
-        auto_update : bool, default=False
-            Whether to automatically update the model after adding variables or constraints.
-
-        Notes
-        -----
-        The class maintains two dictionaries:
-        - constrs: Stores constraints as DataFrames
-        - vars: Stores variables as DataFrames
-
+        Concrete implementations must handle model initialization and setup.
         """
         self.model = model
-        self._set_backend()
+        self.vars: dict[str, pl.Series] = {}
+        self.var_types: dict[str, VarType] = {}
 
-        self.deterministic = deterministic
-        self.auto_update = auto_update
-        self.constrs: dict[str, pl.DataFrame] = {}
-        self.vars: dict[str, pl.DataFrame] = {}
-
-    def _set_backend(self) -> None:
-        if (gp_model := _dependencies.get_gurobipy_model_type()) is not None and isinstance(
-            self.model, gp_model
-        ):
-            from xplor.gurobi.model import XplorGurobi
-
-            self._backend = XplorGurobi(self.model)
-
-    def add_constrs(
+    def var(
         self,
-        df: pl.DataFrame,
-        expr: str,
-        name: str | None = None,
-        indices: list[str] | None = None,
-    ) -> pl.DataFrame:
-        """Add constraints for each row in the dataframe using a string expression.
-
-        Parameters
-        ----------
-        df : pl.DataFrame
-            The input DataFrame containing the data for creating constraints
-        expr : str
-            A string expression representing the constraint. Must include a comparison
-            operator ('<=', '==', or '>='). The expression can reference column names
-            and use standard mathematical operators. For example: "2*x + y <= z"
-        name : str | None
-            Base name for the constraints. If provided, constraints will be added as
-            a new column to the DataFrame with this name.
-        indices: list[str] | None
-            Keys of the constraint
-
-        Returns
-        -------
-        pl.DataFrame
-            If name is provided, returns DataFrame with new constraints appended as a column.
-            If name is None, returns the original DataFrame unchanged.
-
-        Examples
-        --------
-        >>> df = pl.DataFrame({
-        ...     "x": [gp.Var()],
-        ...     "y": [gp.Var()],
-        ...     "z": [5]
-        ... })
-        >>> df = df.pipe(xplor.add_constrs, model, "2*x + y <= z", name="capacity")
-
-        Notes
-        -----
-        - Expression can use any column name from the DataFrame
-        - Supports arithmetic operations (+, -, *, /)
-        - Empty DataFrames are returned unchanged
-        - The model is not automatically updated after adding constraints
-
-        See Also
-        --------
-        add_vars : Function to add variables to the model
-
-        """
-        return self._backend.add_constrs(
-            df=df,
-            expr=expr,
-            name=name,
-            indices=indices,
-        )
-
-    def add_vars(
-        self,
-        df: pl.DataFrame,
         name: str,
-        vtype: str | None,
         *,
         lb: float | str | pl.Expr = 0.0,
         ub: float | str | pl.Expr | None = None,
         obj: float | str | pl.Expr = 0.0,
-        indices: list[str] | None = None,
-    ) -> pl.DataFrame:
-        """Add a variable for each row in the dataframe.
+        indices: pl.Expr | list[str] | None = None,
+        vtype: VarType | None,
+    ) -> pl.Expr:
+        """Define and return a Var expression for optimization variables.
 
         Parameters
         ----------
-        df: pl.DataFrame
-            The dataframe that will hold the new variables
         name : str
-            The variable name
-        vtype: str
-            The variable type for created variables
+            The base name for the variables.
         lb : float | str | pl.Expr
             Lower bound for created variables.
         ub : float | str | pl.Expr
             Upper bound for created variables.
         obj: float | str | pl.Expr
             Objective function coefficient for created variables.
-        indices: list[str] | None
-            Keys of the variables
-
+        indices: list[str]
+            Keys (column names) that uniquely identify each variable.
+        vtype: VarType
+            The type of the variable. Will default to CONTINUOUS.
 
         Returns
         -------
-        DataFrame
-            A new DataFrame with new Vars appended as a column
+        Var
+            A Var expression that, when consumed, adds variables to the model.
 
         """
-        return self._backend.add_vars(
-            df=df,
-            name=name,
-            vtype=vtype,
-            lb=lb,
-            ub=ub,
-            obj=obj,
-            indices=indices,
-        )
+        indices = pl.row_index() if indices is None else indices
+        vtype = VarType.CONTINUOUS if vtype is None else vtype
+        return pl.map_batches(
+            [
+                parse_into_expr(lb).alias("lb"),
+                parse_into_expr(ub).alias("ub"),
+                parse_into_expr(obj).alias("obj"),
+                pl.format(f"{name}[{{}}]", pl.concat_str(indices, separator=",")).alias("name"),
+            ],
+            lambda s: self._add_vars(series_to_df(s), name=name, vtype=vtype),
+            return_dtype=pl.Object,
+        ).alias(name)
+
+    def constr(self, expr: ObjExpr, name: str | None = None) -> pl.Expr:
+        """Define and return a Constr expression for model constraints.
+
+        Parameters
+        ----------
+        expr : ObjExpr
+            The constraint expression (e.g., a relational expression).
+        name : str | None, default None
+            The base name for the constraints.
+
+        Returns
+        -------
+        Constr
+            A Constr expression that, when consumed, adds constraints to the model.
+
+        """
+        expr_str, exprs = expr.process_expression()
+        name = name or expr._get_str(expr_str, exprs)
+        return pl.map_batches(
+            exprs,
+            lambda s: self._add_constrs(
+                series_to_df(s, rename_series=True), name=name, expr_str=expr_str
+            ),
+            return_dtype=pl.Object,
+        ).alias(name)
+
+    @abstractmethod
+    def optimize(self, solver_type: Any | None = None) -> Any:
+        """Solve the model."""
+
+    @abstractmethod
+    def get_objective_value(self) -> float:
+        """Return the objective value."""
+
+    @abstractmethod
+    def _add_constrs(self, df: pl.DataFrame, name: str, expr_str: str) -> pl.Series:
+        """Return a series of variables.
+
+        `df` should contains columns: ["lb", "ub", "name"].
+        """
+
+    @abstractmethod
+    def get_variable_values(self, name: str) -> pl.Series:
+        """Read the value of a variables."""
+
+    @abstractmethod
+    def _add_vars(
+        self,
+        df: pl.DataFrame,
+        name: str,
+        vtype: VarType = VarType.CONTINUOUS,
+    ) -> pl.Series:
+        """Return a series of variables.
+
+        `df` should contains columns: ["lb", "ub", "obj, "name"].
+        """

@@ -1,185 +1,84 @@
-from typing import Self
-
 import gurobipy as gp
 import polars as pl
 
-import xplor.gurobi._utils as gurobi_utils
-from xplor import _utils
+from xplor.model import XplorModel
+from xplor.var import VarType, cast_to_dtypes
 
 
-class XplorGurobi:
+class XplorGurobi(XplorModel):
     """Xplor base class to wrap your Gurobi model."""
 
-    def __init__(
-        self: Self, model: gp.Model, *, deterministic: bool = False, auto_update: bool = False
-    ) -> None:
-        """Initialize an XplorGurobi instance.
+    model: gp.Model
 
-        Parameters
-        ----------
-        model : gp.Model
-            The Gurobi optimization model to wrap.
-        deterministic : bool, default=False
-            Whether to ensure deterministic behavior when creating variables.
-        auto_update : bool, default=False
-            Whether to automatically update the model after adding variables or constraints.
+    def __init__(self, model: gp.Model | None = None) -> None:
+        """Initialize the model wrapper.
 
-        Notes
-        -----
-        The class maintains two dictionaries:
-        - constrs: Stores constraints as DataFrames
-        - vars: Stores variables as DataFrames
-
+        Concrete implementations must handle model initialization and setup.
         """
-        self.model = model
-        self.deterministic = deterministic
-        self.auto_update = auto_update
-        self.constrs: dict[str, pl.DataFrame] = {}
-        self.vars: dict[str, pl.DataFrame] = {}
+        model = gp.Model() if model is None else model
+        super().__init__(model=model)
 
-    @gurobi_utils.update_model
-    def add_constrs(
-        self: Self,
-        df: pl.DataFrame,
-        expr: str,
-        name: str | None = None,
-        indices: list[str] | None = None,
-    ) -> pl.DataFrame:
-        """Add constraints for each row in the dataframe using a string expression.
-
-        Parameters
-        ----------
-        df : pl.DataFrame
-            The input DataFrame containing the data for creating constraints
-        expr : str
-            A string expression representing the constraint. Must include a comparison
-            operator ('<=', '==', or '>='). The expression can reference column names
-            and use standard mathematical operators. For example: "2*x + y <= z"
-        name : str | None
-            Base name for the constraints. If provided, constraints will be added as
-            a new column to the DataFrame with this name.
-        indices: list[str] | None
-            Keys of the constraint
-
-        Returns
-        -------
-        pl.DataFrame
-            If name is provided, returns DataFrame with new constraints appended as a column.
-            If name is None, returns the original DataFrame unchanged.
-
-        Examples
-        --------
-        >>> df = pl.DataFrame({
-        ...     "x": [gp.Var()],
-        ...     "y": [gp.Var()],
-        ...     "z": [5]
-        ... })
-        >>> df = df.pipe(xplor.add_constrs, model, "2*x + y <= z", name="capacity")
-
-        Notes
-        -----
-        - Expression can use any column name from the DataFrame
-        - Supports arithmetic operations (+, -, *, /) and Gurobi functions
-        - Empty DataFrames are returned unchanged
-        - The model is not automatically updated after adding constraints
-
-        See Also
-        --------
-        add_vars : Function to add variables to the model
-
-        """
-        if df.height == 0:
-            return df
-
-        name = name or expr
-
-        if indices is None:
-            indices = ["__default_index__"]
-            df = df.with_row_index(name=indices[0])
-
-        df_ = df.sort(indices) if self.deterministic else df
-
-        lhs_, sense_, rhs_ = _utils.evaluate_comp_expr(df_, expr)
-        name_ = _utils.format_indices(df_, name, indices) if indices else name
-        constrs = gurobi_utils.add_constrs_from_dataframe_args(
-            df_, self.model, lhs_, sense_, rhs_, name_
-        )
-
-        # we need a join because of the sort
-        # we take the advantage of checking that indices are unique on df
-        # this is almost free via `validate`
-        self.constrs[name] = df.join(
-            df_.select(*indices, pl.Series(name, constrs, dtype=pl.Object)),
-            on=indices,
-            validate="1:1",
-        )
-
-        return self.constrs[name]
-
-    @gurobi_utils.update_model
-    def add_vars(
-        self: Self,
+    def _add_vars(
+        self,
         df: pl.DataFrame,
         name: str,
-        vtype: str | None = None,
-        *,
-        lb: float | str | pl.Expr = 0.0,
-        ub: float | str | pl.Expr | None = None,
-        obj: float | str | pl.Expr = 0.0,
-        indices: list[str] | None = None,
-    ) -> pl.DataFrame:
-        """Add a variable to the gurobi model for each row in the dataframe.
+        vtype: VarType = VarType.CONTINUOUS,
+    ) -> pl.Series:
+        """Return a series of variables.
 
-        Parameters
-        ----------
-        df: pl.DataFrame
-            The dataframe that will hold the new variables
-        name : str
-            The variable name
-        vtype: str
-            The variable type for created variables
-        lb : float | str | pl.Expr
-            Lower bound for created variables.
-        ub : float | str | pl.Expr
-            Upper bound for created variables.
-        obj: float | str | pl.Expr
-            Objective function coefficient for created variables.
-        indices: list[str] | None
-            Keys of the variables
-
-
-        Returns
-        -------
-        DataFrame
-            A new DataFrame with new Vars appended as a column
-
+        `df` should contains columns: ["lb", "ub", "obj", "name"].
         """
-        if ub is None:
-            ub = gp.GRB.INFINITY
-        if vtype is None:
-            vtype = gp.GRB.CONTINUOUS
-        if indices is None:
-            indices = ["__default_index__"]
-            df = df.with_row_index(name=indices[0])
-
-        df_ = df.select(*indices, lb=lb, ub=ub, obj=obj)
-        if self.deterministic:
-            df_ = df_.sort(indices)
-
-        mvar = self.model.addMVar(
-            df.height,
-            vtype=vtype,
-            lb=df_["lb"].to_numpy(),
-            ub=df_["ub"].to_numpy(),
-            obj=df_["obj"].to_numpy(),
-            name=_utils.format_indices(df_, name, indices),
-        ).tolist()
-
-        # we need a join because of the sort
-        # we take the advantage of checking that indices are unique on df
-        # this is almost free via `validate`
-        self.vars[name] = df.join(
-            df_.select(*indices, pl.Series(name, mvar, dtype=pl.Object)), on=indices, validate="1:1"
+        self.var_types[name] = vtype
+        self.vars[name] = pl.Series(
+            self.model.addMVar(
+                df.height,
+                vtype=getattr(gp.GRB, vtype),
+                lb=df["lb"].to_numpy(),
+                ub=df["ub"].to_numpy(),
+                obj=df["obj"].to_numpy(),
+                name=df["name"].to_list(),
+            ).tolist(),
+            dtype=pl.Object(),
         )
-
+        self.model.update()
         return self.vars[name]
+
+    def _add_constrs(self, df: pl.DataFrame, name: str, expr_str: str) -> pl.Series:
+        """Return a series of variables."""
+        # TODO: manage non linear constraint
+        # https://github.com/gab23r/xplor/issues/1
+
+        if df.height == 0:
+            return pl.Series(name, dtype=pl.Object)
+
+        # row = df.row(0)
+        # lhs_constr_type = str(type(row[0]))
+        # rhs_constr_type = str(type(row[1]))
+        # if "GenExpr" in lhs_constr_type or "GenExpr" in rhs_constr_type:
+        #     _add_constr = self.model.addConstr
+        # elif "QuadExpr" in lhs_constr_type or "QuadExpr" in rhs_constr_type:
+        #     _add_constr = self.model.addQConstr
+        # else:
+        #     _add_constr = self.model.addLConstr
+
+        _add_constr = self.model.addLConstr
+        series = pl.Series(
+            [_add_constr(eval(expr_str), name=name) for d in df.rows()], dtype=pl.Object
+        )
+        self.model.update()
+        return series
+
+    def optimize(self, solver_type: None = None) -> None:
+        """Solve the model.
+
+        solver_type is ignored for Gurobi models.
+        """
+        self.model.optimize()
+
+    def get_objective_value(self) -> float:
+        """Return the objective value."""
+        return self.model.getObjective().getValue()
+
+    def get_variable_values(self, name: str) -> pl.Series:
+        """Read the value of a variables."""
+        return cast_to_dtypes(pl.Series([e.x for e in self.vars[name]]), self.var_types[name])
