@@ -1,10 +1,11 @@
 import polars as pl
 
 import xplor
-from xplor.gurobi import XplorGurobi
+from xplor.mathopt import XplorMathOpt
 
 
-def test_gurobi_model(xmodel: XplorGurobi) -> None:
+def test_mathopt_model() -> None:
+    xmodel = XplorMathOpt()
     (
         pl.DataFrame({"lb": [-1.0, 0.0], "ub": [1.5, 1.0], "obj": [-1, -2]})
         .with_columns(xmodel.var("x", lb="lb", ub="ub", obj="obj"))

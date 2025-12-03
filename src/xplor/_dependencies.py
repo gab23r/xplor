@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import sys
 from typing import TYPE_CHECKING, Any
 
@@ -16,7 +18,7 @@ def is_ortools_imported() -> Any:
     return sys.modules.get("ortools", None)
 
 
-def get_gurobipy_model_type() -> "type[gp.Model] | None":
+def get_gurobipy_model_type() -> type[gp.Model] | None:
     if "gurobipy" in sys.modules:
         import gurobipy as gp
 
@@ -25,7 +27,7 @@ def get_gurobipy_model_type() -> "type[gp.Model] | None":
         return None
 
 
-def get_ortools_model_type() -> "type[mathopt.Model] | None":
+def get_ortools_model_type() -> type[mathopt.Model] | None:
     if "ortools" in sys.modules:
         from ortools.math_opt.python import mathopt
 

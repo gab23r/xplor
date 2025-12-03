@@ -1,7 +1,7 @@
 # This workflow will install Python dependencies, run tests and lint with a single version of Python
 # For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
 
-name: Python application
+name: Xplor
 
 on:
   push:
@@ -16,7 +16,13 @@ jobs:
   build:
 
     runs-on: ubuntu-latest
-
+    strategy:
+      matrix:
+        python-version:
+          - "3.10"
+          - "3.11"
+          - "3.12"
+          - "3.13"
     steps:
       - uses: actions/checkout@v5
 
@@ -24,10 +30,15 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
+          python-version: ${{ matrix.python-version }}
 
       - name: Install the project
-        run: uv sync 
+        run: uv sync
+
+      - uses: j178/prek-action@v1
+        # Run on the newest Python version for pre-commit, which is fine since pre-commit is isolated
+        # We only need to run this once, so we skip the matrix strategy for this specific action
+        if: ${{ matrix.python-version == '3.13' }}
 
       - name: Run tests
-        # For example, using `pytest`
         run: uv run pytest tests

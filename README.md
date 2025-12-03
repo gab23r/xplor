@@ -35,7 +35,7 @@ Here's a simple example showing how to build and solve an optimization model usi
 
 # Wrap your model with XplorGurobi
 >>> model = gp.Model()
->>> xmodel = xpg.XplorGurobi(model, deterministic=True, auto_update=True)
+>>> xmodel = xpg.XplorGurobi(model, deterministic=True)
 
 # Create sample data
 >>> df = pl.DataFrame({
