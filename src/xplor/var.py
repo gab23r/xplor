@@ -29,7 +29,7 @@ class VarExpr(ObjExpr):
 
     def sum(
         self,
-    ) -> pl.Expr:
+    ) -> VarExpr:
         """Get sum value.
 
         Examples
@@ -37,7 +37,9 @@ class VarExpr(ObjExpr):
         >>> df.group_by('group').agg(xpl.var.sum())
 
         """
-        return self.map_batches(lambda d: sum(d), return_dtype=pl.Object, returns_scalar=True)
+        return VarExpr(
+            self.map_batches(lambda d: sum(d), return_dtype=pl.Object, returns_scalar=True)
+        )
 
     def any(self) -> pl.Expr:  # type: ignore
         """Create a Gurobi OR constraint from elements in each group.
@@ -59,11 +61,13 @@ class VarExpr(ObjExpr):
         """
         import gurobipy as gp
 
-        return self.map_batches(
-            lambda d: gp.or_(d.to_list()), return_dtype=pl.Object, returns_scalar=True
+        return VarExpr(
+            self.map_batches(
+                lambda d: gp.or_(d.to_list()), return_dtype=pl.Object, returns_scalar=True
+            )
         )
 
-    def abs(self) -> pl.Expr:
+    def abs(self) -> VarExpr:
         """Apply Gurobi's absolute value function to elements in each group.
 
         Parameters
@@ -83,7 +87,7 @@ class VarExpr(ObjExpr):
         """
         import gurobipy as gp
 
-        return self.map_elements(lambda d: gp.abs_(d), return_dtype=pl.Object)
+        return VarExpr(self.map_elements(lambda d: gp.abs_(d), return_dtype=pl.Object))
 
     def read_value(self) -> pl.Expr:
         """Extract the optimal value from variables or expressions after optimization.
@@ -137,7 +141,7 @@ class ProxyObjExpr:
             An ObjExpr object initialized with the given name.
 
         """
-        return VarExpr(name)
+        return VarExpr(pl.col(name))
 
     def __getattr__(self, name: str) -> VarExpr:
         """Create an ObjExpr instance using attribute access syntax: `var.column_name`.
@@ -152,7 +156,7 @@ class ProxyObjExpr:
             An ObjExpr object initialized with the attribute name.
 
         """
-        return VarExpr(name)
+        return VarExpr(pl.col(name))
 
 
 var = ProxyObjExpr()

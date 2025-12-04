@@ -9,7 +9,7 @@ authors = [
 license = { text = "MIT" }
 requires-python = ">=3.10"
 dependencies = [
-    "polars>=1.15",
+    "polars>=v1.35",
 ]
 
 [project.optional-dependencies]

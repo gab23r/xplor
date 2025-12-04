@@ -95,7 +95,9 @@ class XplorModel(ABC):
         name = name or expr._get_repr(expr_str, exprs)
         return pl.map_batches(
             exprs,
-            lambda s: self._add_constrs(series_to_df(s), name=name, expr_str=expr_str),
+            lambda s: self._add_constrs(
+                series_to_df(s, rename_series=True), name=name, expr_str=expr_str
+            ),
             return_dtype=pl.Object,
         ).alias(name)
 
