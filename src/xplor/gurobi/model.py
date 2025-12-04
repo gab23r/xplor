@@ -2,7 +2,7 @@ import gurobipy as gp
 import polars as pl
 
 from xplor.model import XplorModel
-from xplor.var import VarType
+from xplor.var import VarType, cast_to_dtypes
 
 
 class XplorGurobi(XplorModel):
@@ -21,13 +21,15 @@ class XplorGurobi(XplorModel):
     def _add_vars(
         self,
         df: pl.DataFrame,
+        name: str,
         vtype: VarType = VarType.CONTINUOUS,
     ) -> pl.Series:
         """Return a series of variables.
 
         `df` should contains columns: ["lb", "ub", "obj", "name"].
         """
-        series = pl.Series(
+        self.var_types[name] = vtype
+        self.vars[name] = pl.Series(
             self.model.addMVar(
                 df.height,
                 vtype=getattr(gp.GRB, vtype),
@@ -39,7 +41,7 @@ class XplorGurobi(XplorModel):
             dtype=pl.Object(),
         )
         self.model.update()
-        return series
+        return self.vars[name]
 
     def _add_constrs(self, df: pl.DataFrame, name: str, expr_str: str) -> pl.Series:
         """Return a series of variables."""
@@ -66,10 +68,17 @@ class XplorGurobi(XplorModel):
         self.model.update()
         return series
 
-    def optimize(self) -> None:
-        """Solve the model."""
+    def optimize(self, solver_type: None = None) -> None:
+        """Solve the model.
+
+        solver_type is ignored for Gurobi models.
+        """
         self.model.optimize()
 
     def get_objective_value(self) -> float:
         """Return the objective value."""
         return self.model.getObjective().getValue()
+
+    def get_variable_values(self, name: str) -> pl.Series:
+        """Read the value of a variables."""
+        return cast_to_dtypes(pl.Series([e.x for e in self.vars[name]]), self.var_types[name])

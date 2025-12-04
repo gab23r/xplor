@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import polars as pl
-from ortools.math_opt.python import mathopt, result
+from ortools.math_opt.python import mathopt, parameters, result
 
 from xplor._utils import map_rows
 from xplor.model import XplorModel
-from xplor.var import VarType
+from xplor.var import VarType, cast_to_dtypes
 
 
 class XplorMathOpt(XplorModel):
@@ -25,6 +25,7 @@ class XplorMathOpt(XplorModel):
     def _add_vars(
         self,
         df: pl.DataFrame,
+        name: str,
         vtype: VarType = VarType.CONTINUOUS,
     ) -> pl.Series:
         """Return a series of variables.
@@ -37,8 +38,8 @@ class XplorMathOpt(XplorModel):
                 pl.col("lb").clip(lower_bound=0).fill_null(0),
                 pl.col("ub").clip(upper_bound=1).fill_null(1),
             )
-
-        series = pl.Series(
+        self.var_types[name] = vtype
+        self.vars[name] = pl.Series(
             [
                 self.model.add_variable(
                     lb=lb_, ub=ub_, name=name_, is_integer=vtype != VarType.CONTINUOUS
@@ -49,10 +50,10 @@ class XplorMathOpt(XplorModel):
         )
         if df.select("obj").filter(pl.col("obj") != 0).height:
             self.model.minimize_linear_objective(
-                sum([w * v for w, v in zip(df["obj"], series, strict=True)])
+                sum([w * v for w, v in zip(df["obj"], self.vars[name], strict=True)])
             )
 
-        return series
+        return self.vars[name]
 
     def _add_constrs(self, df: pl.DataFrame, name: str, expr_str: str) -> pl.Series:
         """Return a series of variables.
@@ -67,9 +68,10 @@ class XplorMathOpt(XplorModel):
             lambda d: self.model.add_linear_constraint(eval(expr_str), name=name),
         )
 
-    def optimize(self) -> None:
+    def optimize(self, solver_type: parameters.SolverType | None = None) -> None:
         """Solve the model."""
-        self.result = mathopt.solve(self.model, mathopt.SolverType.GLOP)
+        solver_type = mathopt.SolverType.GLOP if solver_type is None else solver_type
+        self.result = mathopt.solve(self.model, solver_type)
 
     def get_objective_value(self) -> float:
         """Return the objective value."""
@@ -77,3 +79,9 @@ class XplorMathOpt(XplorModel):
             msg = "The model is not optimized."
             raise Exception(msg)
         return self.result.objective_value()
+
+    def get_variable_values(self, name: str) -> pl.Series:
+        """Read the value of a variables."""
+        return cast_to_dtypes(
+            pl.Series(name, self.result.variable_values(self.vars[name])), self.var_types[name]
+        )

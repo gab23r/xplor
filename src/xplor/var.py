@@ -15,6 +15,16 @@ class VarType(str, Enum):
     BINARY = "BINARY"
 
 
+def cast_to_dtypes(series: pl.Series, vartype: VarType) -> pl.Series:
+    """Cast a series to the corresponding data type base on its vartype."""
+    if vartype == VarType.CONTINUOUS:
+        return series.cast(pl.Float64)
+    elif vartype == VarType.BINARY:
+        return series.cast(pl.Int8).cast(pl.Boolean)
+    else:
+        return series.cast(pl.Int32)
+
+
 class VarExpr(ObjExpr):
     """A specialized custom Polars Expression wrapper, extending ObjExpr,
     designed for constructing composite expressions or linear expressions.
@@ -38,7 +48,8 @@ class VarExpr(ObjExpr):
 
         """
         return VarExpr(
-            self.map_batches(lambda d: sum(d), return_dtype=pl.Object, returns_scalar=True)
+            self.map_batches(lambda d: sum(d), return_dtype=pl.Object, returns_scalar=True),
+            name=f"{self}.sum()",
         )
 
     def any(self) -> pl.Expr:  # type: ignore
@@ -64,7 +75,8 @@ class VarExpr(ObjExpr):
         return VarExpr(
             self.map_batches(
                 lambda d: gp.or_(d.to_list()), return_dtype=pl.Object, returns_scalar=True
-            )
+            ),
+            name=f"{self}.any()",
         )
 
     def abs(self) -> VarExpr:
@@ -87,36 +99,9 @@ class VarExpr(ObjExpr):
         """
         import gurobipy as gp
 
-        return VarExpr(self.map_elements(lambda d: gp.abs_(d), return_dtype=pl.Object))
-
-    def read_value(self) -> pl.Expr:
-        """Extract the optimal value from variables or expressions after optimization.
-
-        Parameters
-        ----------
-        expr : str
-            Column name or polars expression containing Gurobi variables or linear expressions
-
-        Returns
-        -------
-        pl.Expr
-            Expression that will return the optimal values after model solving.
-            For variables, returns X attribute value.
-            For linear expressions, returns the evaluated value.
-
-        Examples
-        --------
-        >>> df.with_columns(xpl.var.x.read_value())
-
-        """
-        return self.map_batches(
-            lambda s:
-            # in case of a variable
-            pl.Series([e.x for e in s])
-            if s.len() and hasattr(s[0], "X")
-            # in case of a linExpr
-            else pl.Series([e.getValue() for e in s]),
-            return_dtype=pl.Float64,
+        return VarExpr(
+            self.map_elements(lambda d: gp.abs_(d), return_dtype=pl.Object),
+            name=f"{self}.abs()",
         )
 
 

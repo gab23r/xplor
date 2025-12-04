@@ -28,6 +28,8 @@ class XplorModel(ABC):
         Concrete implementations must handle model initialization and setup.
         """
         self.model = model
+        self.vars: dict[str, pl.Series] = {}
+        self.var_types: dict[str, VarType] = {}
 
     def var(
         self,
@@ -37,7 +39,7 @@ class XplorModel(ABC):
         ub: float | str | pl.Expr | None = None,
         obj: float | str | pl.Expr = 0.0,
         indices: pl.Expr | list[str] | None = None,
-        vtype: VarType = VarType.CONTINUOUS,
+        vtype: VarType | None,
     ) -> pl.Expr:
         """Define and return a Var expression for optimization variables.
 
@@ -53,8 +55,8 @@ class XplorModel(ABC):
             Objective function coefficient for created variables.
         indices: list[str]
             Keys (column names) that uniquely identify each variable.
-        vtype: VarType, default "CONTINUOUS"
-            The type of the variable.
+        vtype: VarType
+            The type of the variable. Will default to CONTINUOUS.
 
         Returns
         -------
@@ -63,7 +65,7 @@ class XplorModel(ABC):
 
         """
         indices = pl.row_index() if indices is None else indices
-
+        vtype = VarType.CONTINUOUS if vtype is None else vtype
         return pl.map_batches(
             [
                 parse_into_expr(lb).alias("lb"),
@@ -71,7 +73,7 @@ class XplorModel(ABC):
                 parse_into_expr(obj).alias("obj"),
                 pl.format(f"{name}[{{}}]", pl.concat_str(indices, separator=",")).alias("name"),
             ],
-            lambda s: self._add_vars(series_to_df(s), vtype=vtype),
+            lambda s: self._add_vars(series_to_df(s), name=name, vtype=vtype),
             return_dtype=pl.Object,
         ).alias(name)
 
@@ -92,7 +94,7 @@ class XplorModel(ABC):
 
         """
         expr_str, exprs = expr.process_expression()
-        name = name or expr._get_repr(expr_str, exprs)
+        name = name or expr._get_str(expr_str, exprs)
         return pl.map_batches(
             exprs,
             lambda s: self._add_constrs(
@@ -102,7 +104,7 @@ class XplorModel(ABC):
         ).alias(name)
 
     @abstractmethod
-    def optimize(self) -> Any:
+    def optimize(self, solver_type: Any | None = None) -> Any:
         """Solve the model."""
 
     @abstractmethod
@@ -117,9 +119,14 @@ class XplorModel(ABC):
         """
 
     @abstractmethod
+    def get_variable_values(self, name: str) -> pl.Series:
+        """Read the value of a variables."""
+
+    @abstractmethod
     def _add_vars(
         self,
         df: pl.DataFrame,
+        name: str,
         vtype: VarType = VarType.CONTINUOUS,
     ) -> pl.Series:
         """Return a series of variables.

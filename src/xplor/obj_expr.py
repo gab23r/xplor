@@ -37,35 +37,43 @@ class ObjExpr(pl.Expr):
     This allows complex, multi-variable logic to run within Polars' optimized
     batch context.
 
-    The final expression uses integer indexing (d[0], d[1], etc.) where:
-    - Indices 0 to N-1 map to the unique ObjExpr names (from `self._obj_names`).
-    - Indices N onwards map to embedded Polars expressions (pl.Expr).
-
     Attributes:
         _expr (pl.Expr): The root expression.
+        _expr_name (str | None): The root expression name.
         _nodes (list[ObjExprNode]): The internal list representing the operation AST.
 
     """
 
-    def __init__(self, expr: pl.Expr) -> None:
+    def __init__(self, expr: pl.Expr, name: str | None = None) -> None:
         self._expr: pl.Expr = expr
+        self._name: str | None = name
         self._nodes: list[ObjExprNode] = []
 
     def _repr_html_(self) -> str:
         return repr(self)
 
     def __repr__(self) -> str:
-        expr_str, exprs = self.process_expression()
-        return self._get_repr(expr_str, exprs)
+        expr_repr, _ = self.process_expression()
+        return expr_repr
+
+    def __str__(self) -> str:
+        expr_repr, exprs = self.process_expression()
+        return self._get_str(expr_repr, exprs)
 
     @property
     def _pyexpr(self):  # type: ignore # noqa: ANN202
         if not self._nodes:
             return self._expr._pyexpr
-        expr_str, exprs = self.process_expression()
+        expr_repr, exprs = self.process_expression()
+        if self._nodes[-1].operator in ("__eq__", "__ge__", "__le__"):
+            msg = (
+                "Temporary constraints are not valid expression.\n"
+                "Please wrap your constraint with `xplor.Model.constr()`"
+            )
+            raise Exception(msg)
         return pl.map_batches(
             exprs,
-            lambda s: map_rows(series_to_df(s, rename_series=True), eval(f"lambda d: {expr_str}")),
+            lambda s: map_rows(series_to_df(s, rename_series=True), eval(f"lambda d: {expr_repr}")),
             return_dtype=pl.Object,
         )._pyexpr
 
@@ -106,7 +114,7 @@ class ObjExpr(pl.Expr):
         and an equivalent lambda function, using integer indexing for all inputs.
         """
         exprs: list[pl.Expr] = [self._expr]
-        expr_str = "d[0]"
+        expr_repr = "d[0]"
 
         for node in self._nodes:
             if isinstance(node.operand, pl.Expr):
@@ -117,16 +125,34 @@ class ObjExpr(pl.Expr):
 
             # Sequential building with parentheses to maintain precedence based on chain order
             if node.operator.startswith("__r"):
-                expr_str = f"({operand_str} {OPERATOR_MAP[node.operator]} {expr_str})"
+                expr_repr = f"({operand_str} {OPERATOR_MAP[node.operator]} {expr_repr})"
             else:
-                expr_str = f"({expr_str} {OPERATOR_MAP[node.operator]} {operand_str})"
+                expr_repr = f"({expr_repr} {OPERATOR_MAP[node.operator]} {operand_str})"
 
-        return expr_str, exprs
+        return expr_repr, exprs
 
-    @staticmethod
-    def _get_repr(expr_str: str, exprs: list[pl.Expr]) -> str:
+    def _get_str(self, expr_repr: str, exprs: list[pl.Expr]) -> str:
         """Return the representation of the expression."""
-        expr_repr = expr_str
+        expr_str = expr_repr
+
         for i, expr in enumerate(exprs):
-            expr_repr = expr_repr.replace(f"d[{i}]", str(expr.meta.output_name()))
-        return expr_repr
+            if i == 0 and self._name is not None:
+                replacement = self._name
+            elif expr.meta.is_column() or isinstance(expr, ObjExpr):
+                replacement = expr.meta.output_name()
+            else:
+                replacement = str(expr)
+            # elif isinstance(expr, ObjExpr):
+            #     # Case 2: The expression is an instance of a custom class (ObjExpr)
+
+            # else:
+            #     # Case 3: Any other complex expression (e.g., pl.col("a") + pl.col("b"))
+            #     replacement = f"f({','.join(expr.meta.root_names())})"
+
+            # Perform the replacement
+            expr_str = expr_str.replace(
+                f"d[{i}]",
+                replacement,
+            )
+
+        return expr_str
