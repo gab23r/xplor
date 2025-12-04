@@ -1,3 +1,4 @@
 __pycache__/
 .env
-typings/
+.vscode
+.DS_store

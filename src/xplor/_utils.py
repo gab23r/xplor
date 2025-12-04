@@ -1,47 +1,47 @@
-import ast
-import re
+from collections.abc import Callable, Sequence
+from typing import Any
 
 import polars as pl
 
 
-def format_indices(df: pl.DataFrame, name: str, indices: list[str]) -> list[str]:
-    return (
-        df.select(
-            pl.format(
-                "{}[{}]",
-                pl.lit(name),
-                pl.concat_str(indices, separator=","),
-            )
-        )
-        .to_series(0)
-        .to_list()
+def parse_into_expr(value: float | str | pl.Expr | None) -> pl.Expr:
+    if isinstance(value, float | int):
+        return pl.lit(value, dtype=pl.Float64)
+    elif value is None:
+        return pl.lit(value, dtype=pl.Null)
+    elif isinstance(value, str):
+        return pl.col(value)
+    return value
+
+
+def map_rows(df: pl.DataFrame, f: Callable[[tuple], Any]) -> pl.Series:
+    """Apply a custom/user-defined function (UDF) over the rows of the DataFrame.
+
+    This function is the equivalent of `pl.Dataframe.map_rows`, but works with `pl.Object`.
+    See: https://github.com/pola-rs/polars/issues/25570
+    """
+    return pl.Series([f(r) for r in df.rows()], dtype=pl.Object)
+
+
+def series_to_df(series: Sequence[pl.Series], *, rename_series: bool = False) -> pl.DataFrame:
+    """Broadcast a list of series to the same height and return a DataFrame.
+
+    Parameters
+    ----------
+    series : Sequence[pl.Series]
+        Series to broadcast.
+    rename_series : bool, optional
+        Series are renamed to avoid duplicated names, by default False
+
+    """
+    max_length = next((s.len() for s in series if s.len() > 1), len(series[0]))
+    return pl.DataFrame(
+        [
+            (
+                pl.repeat(s[0], max_length, eager=True, dtype=s.dtype)
+                if s.len() != max_length
+                else s
+            ).alias(str(i) if rename_series else s.name)
+            for i, s in enumerate(series)
+        ]
     )
-
-
-def evaluate_comp_expr(df: pl.DataFrame, expr: str) -> tuple[pl.Series, str, pl.Series]:
-    # Just get the first character of sense, to match the gurobipy enums
-    lhs, rhs = re.split("[<>=]+", expr)
-    sense = expr.replace(lhs, "").replace(rhs, "")[0]
-
-    lhsseries = evaluate_expr(df, lhs.strip())
-    rhsseries = evaluate_expr(df, rhs.strip())
-    return lhsseries, sense, rhsseries
-
-
-def evaluate_expr(df: pl.DataFrame, expr: str) -> pl.Series:
-    if expr in df:
-        return df[expr]
-    else:
-        tree = ast.parse(expr, mode="eval")
-        vars = {
-            node.id
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Name) and node.id in df.columns
-        }
-        if vars.intersection(df.select(pl.col(pl.Object)).columns):
-            return pl.Series(
-                [eval(expr, None, r) for r in df.select(vars).rows(named=True)],
-                dtype=pl.Object,
-            )
-        else:
-            return df.with_columns(__xplor_tmp__=eval(expr))["__xplor_tmp__"]

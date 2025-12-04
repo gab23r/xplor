@@ -1,15 +1,15 @@
 [project]
 name = "xplor"
-version = "0.2.3"
+version = "0.3.0"
 description = "A unified framework for Operation Research modeling with polars"
 readme = "README.md"
 authors = [
     { name = "Gabriel Robin" }
 ]
 license = { text = "MIT" }
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = [
-    "polars>=1.15",
+    "polars>=v1.35",
 ]
 
 [project.optional-dependencies]
@@ -20,24 +20,36 @@ gurobi = [
 ortools = [
     "ortools>=9.11.4210",
 ]
-
+all = [
+    "xplor[gurobi]",
+    "xplor[ortools]",
+]
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.9.15,<0.10.0"]
+build-backend = "uv_build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/xplor"]
 
 [dependency-groups]
 dev = [
-    "mypy>=1.11.2",
     "pytest>=8.3.3",
     "ruff>=0.8",
+    "ipykernel>=7.1.0",
+    "ty>=0.0.1a30",
+    "prek>=0.2.19",
 ]
+extras = [
+    "xplor[all]",
+]
+
+[tool.uv]
+default-groups = "all"
 
 [[tool.uv.index]]
 url = "https://pypi.python.org/simple"
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
@@ -76,9 +88,14 @@ ignore = [
   "D100", # Missing docstring in public module
   "ANN401", # Dynamically typed expressions (typing.Any) are disallowed in `**kwargs`
   "TRY002", # Create your own exception
+  "TD002", # missing-todo-author
+  "D105", # undocumented-magic-method
+  "D107", # Missing docstring in `__init__`
+  "D205",
   "D203", # one-blank-line-before-class
   "D213", # multi-line-summary-second-line
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["D100", "D102", "D103", "B018", "FBT001"]
+"tests/**/*.py" = ["D", "B018", "FBT001", "ANN201"]
+"*.ipynb" = ["ALL"]
