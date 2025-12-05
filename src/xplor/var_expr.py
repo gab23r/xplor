@@ -99,6 +99,8 @@ class _ProxyObjExpr:
     Examples:
     ```python
 
+    >>> xmodel = XplorMathOpt()
+    >>> df = df.with_columns(xmodel.add_vars("production"))
     >>> df.select(total_cost = xplor.var("production") * pl.col("cost"))
     ```
 
