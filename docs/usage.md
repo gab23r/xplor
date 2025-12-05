@@ -140,7 +140,7 @@ xmodel.get_objective_value()
 The optimal values for the variables are retrieved by referencing the **name** used when the variables were created (`"x"` in our example). The result is returned as a **Polars Series**.
 
 ```python
-# Add solution back to the DataFrame based on index
+# Add solution back to the DataFrame
 df.select("product", xmodel.get_variable_values("x").alias("production_units"))
 # shape: (2, 2)
 # ┌─────────┬──────────────────┐
