@@ -40,7 +40,7 @@ pip install xplor[all]
 
 ## Quick Start
 
-Have a look to the documentation.
+Have a look to the [documentation](https://gab23r.github.io/xplor/usage.html).
 
 ## 🟢 Current Status
 
@@ -58,7 +58,7 @@ Have a look to the documentation.
 
 ## Contributing
 
-Want to contribute? Read our [contributing guide](./contributing.qmd).
+Want to contribute? Read our [contributing guide](https://gab23r.github.io/xplor/contributing.html).
 
 ## License
 
