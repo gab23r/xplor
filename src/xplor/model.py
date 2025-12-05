@@ -39,7 +39,7 @@ class XplorModel(ABC):
         ub: float | str | pl.Expr | None = None,
         obj: float | str | pl.Expr = 0.0,
         indices: pl.Expr | list[str] | None = None,
-        vtype: VarType | None,
+        vtype: VarType | None = None,
     ) -> pl.Expr:
         """Define and return a Var expression for optimization variables.
 
@@ -55,7 +55,7 @@ class XplorModel(ABC):
             Objective function coefficient for created variables.
         indices: list[str]
             Keys (column names) that uniquely identify each variable.
-        vtype: VarType
+        vtype: VarType | None, default to None.
             The type of the variable. Will default to CONTINUOUS.
 
         Returns

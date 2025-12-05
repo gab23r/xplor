@@ -7,6 +7,7 @@ Welcome to `xplor`. This guide shows you how to use familiar **polars DataFrame*
 An `xplor` model is a **thin wrapper** around a classic solver model (e.g., `gurobi.Model`, `mathopt.Model`, etc.). This object allows us to **unify all solver-specific syntax** into a single **Polars-based syntax**.
 
 ```python
+import xplor
 from xplor.gurobi import XplorGurobi
 
 # Initialize the xplor wrapper around a Gurobi model
@@ -37,37 +38,34 @@ Let's define a set of variables with unique lower bounds (`lb`), upper bounds (`
 
 ```python
 import polars as pl
+import xplor
 from xplor.types import VarType
 
 data = pl.DataFrame({
-    "index_id": [1, 2, 3],
-    "lb": [0.0, 1.0, 0.0],
-    "ub": [10.0, 5.0, 20.0],
-    "obj": [2.0, -1.5, 3.0],
+    "product": ["P1", "P2"],
+    "profit": [150.0, 200.0],
+    "max_prod": [200.0, 150.0],
+    "labor_hrs": [5.0, 10.0], # Labor hours per unit
+    "material_weight": [4.0, 3.0], # Material pounds per unit
+
 })
 
+# Available Resources (Constant for constraints)
+MAX_LABOR = 1500.0
+MAX_WEIGHT = 1000.0
+
 # Add variables to the DataFrame using xmodel.var()
-df = data.with_columns(
-    xmodel.var(
-        "x",
-        lb="lb",
-        ub="ub",
-        obj="obj",
-        indices=["index_id"],
-        vtype=VarType.CONTINUOUS,
-    )
-)
+df = data.with_columns(xmodel.var("x", lb="min_prod", ub="max_prod", obj="profit", indices=["product"]))
 df
-# shape: (3, 5)
-# ┌──────────┬─────┬──────┬──────┬───────────────────┐
-# │ index_id ┆ lb  ┆ ub   ┆ obj  ┆ x                 │
-# │ ---      ┆ --- ┆ ---  ┆ ---  ┆ ---               │
-# │ i64      ┆ f64 ┆ f64  ┆ f64  ┆ object            │
-# ╞══════════╪═════╪══════╪══════╪═══════════════════╡
-# │ 1        ┆ 0.0 ┆ 10.0 ┆ 2.0  ┆ <gurobi.Var x[1]> │
-# │ 2        ┆ 1.0 ┆ 5.0  ┆ -1.5 ┆ <gurobi.Var x[2]> │
-# │ 3        ┆ 0.0 ┆ 20.0 ┆ 3.0  ┆ <gurobi.Var x[3]> │
-# └──────────┴─────┴──────┴──────┴───────────────────┘
+# shape: (2, 7)
+# ┌─────────┬────────┬──────────┬───────────┬─────────────────┬────────────────────┐
+# │ product ┆ profit ┆ max_prod ┆ labor_hrs ┆ material_weight ┆ x                  │
+# │ ---     ┆ ---    ┆ ---      ┆ ---       ┆ ---             ┆ ---                │
+# │ str     ┆ f64    ┆ f64      ┆ f64       ┆ f64             ┆ object             │
+# ╞═════════╪════════╪══════════╪═══════════╪═════════════════╪════════════════════╡
+# │ P1      ┆ 150.0  ┆ 200.0    ┆ 5.0       ┆ 4.0             ┆ <gurobi.Var x[P1]> │
+# │ P2      ┆ 200.0  ┆ 150.0    ┆ 10.0      ┆ 3.0             ┆ <gurobi.Var x[P2]> │
+# └─────────┴────────┴──────────┴───────────┴─────────────────┴────────────────────┘
 
 ```
 
@@ -75,43 +73,43 @@ df
 
 -----
 
-## Adding Constraints (`xmodel.constr()`)
+## Variable expressions
+
+```python
+# You can defined expression by mixing `xplor.var` and polars expression
+df = df.with_columns(labor_usage = xplor.var("x") * pl.col("labor_hrs"))
+df
+# shape: (2, 8)
+# ┌─────────┬────────┬──────────┬───────────┬─────────────────┬────────────────────┬─────────────┐
+# │ product ┆ profit ┆ max_prod ┆ labor_hrs ┆ material_weight ┆ x                  ┆ labor_usage │
+# │ ---     ┆ ---    ┆ ---      ┆ ---       ┆ ---             ┆ ---                ┆ ---         │
+# │ str     ┆ f64    ┆ f64      ┆ f64       ┆ f64             ┆ object             ┆ object      │
+# ╞═════════╪════════╪══════════╪═══════════╪═════════════════╪════════════════════╪═════════════╡
+# │ P1      ┆ 150.0  ┆ 200.0    ┆ 5.0       ┆ 4.0             ┆ <gurobi.Var x[P1]> ┆ 5.0 x[P1]   │
+# │ P2      ┆ 200.0  ┆ 150.0    ┆ 10.0      ┆ 3.0             ┆ <gurobi.Var x[P2]> ┆ 10.0 x[P2]  │
+# └─────────┴────────┴──────────┴───────────┴─────────────────┴────────────────────┴─────────────┘
+```
+
+-----
+
+## Adding Constraints
 
 
 The `xmodel.constr()` method captures the symbolic expression, executes it in the context of the DataFrame, and adds the resulting constraints to the underlying solver model.
 
-### 1\. Simple constraint
-
-To add a constraint for every row of the DataFrame (e.g., $x_i \le 5 \cdot \text{lb}_i$):
-
 ```python
-df.select(xmodel.constr(xplor.var("x") <= 5 * pl.col("lb"), name="c"))
-# shape: (3, 1)
-# ┌──────────────────────────────┐
-# │ c                    │
-# │ ---                          │
-# │ object                       │
-# ╞══════════════════════════════╡
-# │ <gurobi.Constr c[0]> │
-# │ <gurobi.Constr c[1]> │
-# │ <gurobi.Constr c[2]> │
-# └──────────────────────────────┘
-```
-
-### 2\. Expression
-
-You can used of polars expressiom syntax to build you constraint (e.g., $\sum_{i} (x_{i} - \min(\text{lb})) \le 15$):
-
-```python
-df.select(xmodel.constr((xplor.var("x") - pl.col("lb").min()).sum() <= 15.0)) # name of the constraint is deduced.
-# shape: (1, 1)
-# ┌─────────────────────────────────┐
-# │ (x - lb.min()).sum() <= 15      │
-# │ ---                             │
-# │ object                          │
-# ╞═════════════════════════════════╡
-# │ <gurobi.Constr (x - lb.min()).… │
-# └─────────────────────────────────┘
+df.select(
+    xmodel.constr(xplor.var("labor_usage").sum() <= MAX_LABOR, name="maxlabor"),
+    xmodel.constr((xplor.var("x") * pl.col("material_weight")).sum() <= MAX_WEIGHT) # name is deduce from the expression!
+)
+# shape: (1, 2)
+# ┌─────────────────────────────┬─────────────────────────────────┐
+# │ maxlabor                    ┆ (x * weight).sum() <= 1000.0    │
+# │ ---                         ┆ ---                             │
+# │ object                      ┆ object                          │
+# ╞═════════════════════════════╪═════════════════════════════════╡
+# │ <gurobi.Constr maxlabor[0]> ┆ <gurobi.Constr (x * weight).su… │
+# └─────────────────────────────┴─────────────────────────────────┘
 ```
 
 -----
@@ -123,17 +121,21 @@ df.select(xmodel.constr((xplor.var("x") - pl.col("lb").min()).sum() <= 15.0)) # 
 The `optimize()` method triggers the solver (Gurobi, in this case) to find the optimal solution.
 
 ```python
+# Set the objective to Maximize (since obj is profit)
+xmodel.model.setObjective(xmodel.model.getObjective(), sense=gp.GRB.MAXIMIZE)
+
+# Solve the model (guaranteed feasible)
 xmodel.optimize()
 # Gurobi Optimizer version...
 # ...
-# Optimal objective -7.500000000e+00
+# Optimal objective  4.000000000e+04
 ```
 
 ### Extracting the Objective Value
 
 ```python
 xmodel.get_objective_value()
-# -7.5
+# 40000.0
 ```
 
 ### Extracting Variable Values
@@ -142,15 +144,15 @@ The optimal values for the variables are retrieved by referencing the **name** u
 
 ```python
 # Add solution back to the DataFrame based on index
-data.with_columns(xmodel.get_variable_values("x"))
-# shape: (3, 5)
-# ┌──────────┬─────┬──────┬──────┬─────┐
-# │ index_id ┆ lb  ┆ ub   ┆ obj  ┆ x   │
-# │ ---      ┆ --- ┆ ---  ┆ ---  ┆ --- │
-# │ i64      ┆ f64 ┆ f64  ┆ f64  ┆ f64 │
-# ╞══════════╪═════╪══════╪══════╪═════╡
-# │ 1        ┆ 0.0 ┆ 10.0 ┆ 2.0  ┆ 0.0 │
-# │ 2        ┆ 1.0 ┆ 5.0  ┆ -1.5 ┆ 5.0 │
-# │ 3        ┆ 0.0 ┆ 20.0 ┆ 3.0  ┆ 0.0 │
-# └──────────┴─────┴──────┴──────┴─────┘
+df.select("product", xmodel.get_variable_values("x").alias("production_units"))
+# shape: (2, 2)
+# ┌─────────┬──────────────────┐
+# │ product ┆ production_units │
+# │ ---     ┆ ---              │
+# │ str     ┆ f64              │
+# ╞═════════╪══════════════════╡
+# │ P1      ┆ 200.0            │
+# │ P2      ┆ 50.0             │
+# └─────────┴──────────────────┘
+
 ```
