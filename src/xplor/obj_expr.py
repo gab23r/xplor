@@ -10,6 +10,8 @@ from xplor._utils import map_rows, series_to_df
 OPERATOR_MAP = {
     "__add__": "+",
     "__radd__": "+",
+    "__sub__": "-",
+    "__rsub__": "-",
     "__mul__": "*",
     "__rmul__": "*",
     "__truediv__": "/",
@@ -85,6 +87,12 @@ class ObjExpr(pl.Expr):
     def __add__(self, other: Any) -> ObjExpr:
         return self._append_node("__add__", other)
 
+    def __sub__(self, other: Any) -> ObjExpr:
+        return self._append_node("__sub__", other)
+
+    def __rsub__(self, other: Any) -> ObjExpr:
+        return self._append_node("__rsub__", other)
+
     def __radd__(self, other: Any) -> ObjExpr:
         return self._append_node("__radd__", other)
 
@@ -128,7 +136,9 @@ class ObjExpr(pl.Expr):
                 expr_repr = f"({operand_str} {OPERATOR_MAP[node.operator]} {expr_repr})"
             else:
                 expr_repr = f"({expr_repr} {OPERATOR_MAP[node.operator]} {operand_str})"
-
+        # remove full outer parenthesis
+        if self._nodes:
+            expr_repr = expr_repr[1:-1]
         return expr_repr, exprs
 
     def _get_str(self, expr_repr: str, exprs: list[pl.Expr]) -> str:
@@ -142,12 +152,8 @@ class ObjExpr(pl.Expr):
                 replacement = expr.meta.output_name()
             else:
                 replacement = str(expr)
-            # elif isinstance(expr, ObjExpr):
-            #     # Case 2: The expression is an instance of a custom class (ObjExpr)
-
-            # else:
-            #     # Case 3: Any other complex expression (e.g., pl.col("a") + pl.col("b"))
-            #     replacement = f"f({','.join(expr.meta.root_names())})"
+                for n in expr.meta.root_names():
+                    replacement = replacement.replace(f'col("{n}")', n)
 
             # Perform the replacement
             expr_str = expr_str.replace(
