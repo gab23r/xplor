@@ -12,7 +12,6 @@ repos:
       - id: check-symlinks
       - id: check-merge-conflict
       - id: detect-private-key
-      - id: no-commit-to-branch
       - id: check-executables-have-shebangs
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.7
