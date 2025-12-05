@@ -6,7 +6,7 @@ import xplor
 from xplor.gurobi import XplorGurobi
 from xplor.mathopt import XplorMathOpt
 from xplor.model import XplorModel
-from xplor.var import VarType
+from xplor.types import VarType
 
 
 @pytest.mark.parametrize(

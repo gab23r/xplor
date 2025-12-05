@@ -2,7 +2,7 @@ import gurobipy as gp
 import polars as pl
 
 from xplor.model import XplorModel
-from xplor.var import VarType, cast_to_dtypes
+from xplor.types import VarType, cast_to_dtypes
 
 
 class XplorGurobi(XplorModel):
@@ -63,7 +63,8 @@ class XplorGurobi(XplorModel):
 
         _add_constr = self.model.addLConstr
         series = pl.Series(
-            [_add_constr(eval(expr_str), name=name) for d in df.rows()], dtype=pl.Object
+            [_add_constr(eval(expr_str), name=f"{name}[{i}]") for i, d in enumerate(df.rows())],
+            dtype=pl.Object,
         )
         self.model.update()
         return series
@@ -81,4 +82,4 @@ class XplorGurobi(XplorModel):
 
     def get_variable_values(self, name: str) -> pl.Series:
         """Read the value of a variables."""
-        return cast_to_dtypes(pl.Series([e.x for e in self.vars[name]]), self.var_types[name])
+        return cast_to_dtypes(pl.Series(name, [e.x for e in self.vars[name]]), self.var_types[name])

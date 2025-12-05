@@ -1,28 +1,8 @@
 from __future__ import annotations
 
-from enum import Enum
-
 import polars as pl
 
 from xplor.obj_expr import ObjExpr
-
-
-class VarType(str, Enum):
-    """The type of the variable."""
-
-    CONTINUOUS = "CONTINUOUS"
-    INTEGER = "INTEGER"
-    BINARY = "BINARY"
-
-
-def cast_to_dtypes(series: pl.Series, vartype: VarType) -> pl.Series:
-    """Cast a series to the corresponding data type base on its vartype."""
-    if vartype == VarType.CONTINUOUS:
-        return series.cast(pl.Float64)
-    elif vartype == VarType.BINARY:
-        return series.cast(pl.Int8).cast(pl.Boolean)
-    else:
-        return series.cast(pl.Int32)
 
 
 class VarExpr(ObjExpr):
@@ -33,7 +13,6 @@ class VarExpr(ObjExpr):
         sum(): Calculates the sum of optimization objects (e.g., for objective function creation).
         any(): Creates a Gurobi OR constraint across elements in each group.
         abs(): Applies Gurobi's absolute value function.
-        read_value(): Extracts the optimal solution value (X or getValue()) after model solving.
 
     """
 
@@ -47,9 +26,10 @@ class VarExpr(ObjExpr):
         >>> df.group_by('group').agg(xpl.var.sum())
 
         """
+        name = str(self) if self.meta.is_column() else f"({self})"
         return VarExpr(
             self.map_batches(lambda d: sum(d), return_dtype=pl.Object, returns_scalar=True),
-            name=f"{self}.sum()",
+            name=name + ".sum()",
         )
 
     def any(self) -> pl.Expr:  # type: ignore

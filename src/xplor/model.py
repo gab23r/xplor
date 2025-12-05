@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 import polars as pl
 
 from xplor._utils import parse_into_expr, series_to_df
-from xplor.var import VarType
+from xplor.types import VarType
 
 if TYPE_CHECKING:
     import gurobipy as gp
@@ -113,10 +113,7 @@ class XplorModel(ABC):
 
     @abstractmethod
     def _add_constrs(self, df: pl.DataFrame, name: str, expr_str: str) -> pl.Series:
-        """Return a series of variables.
-
-        `df` should contains columns: ["lb", "ub", "name"].
-        """
+        """Return a series of variables."""
 
     @abstractmethod
     def get_variable_values(self, name: str) -> pl.Series:

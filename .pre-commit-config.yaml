@@ -28,5 +28,6 @@ repos:
     -   id: ty
         name: ty
         entry: uv run ty check
+        exclude: docs/
         language: system
         types: [python]

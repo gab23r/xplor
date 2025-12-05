@@ -3,9 +3,8 @@ from __future__ import annotations
 import polars as pl
 from ortools.math_opt.python import mathopt, parameters, result
 
-from xplor._utils import map_rows
 from xplor.model import XplorModel
-from xplor.var import VarType, cast_to_dtypes
+from xplor.types import VarType, cast_to_dtypes
 
 
 class XplorMathOpt(XplorModel):
@@ -56,16 +55,16 @@ class XplorMathOpt(XplorModel):
         return self.vars[name]
 
     def _add_constrs(self, df: pl.DataFrame, name: str, expr_str: str) -> pl.Series:
-        """Return a series of variables.
-
-        `df` should contains columns: ["lb", "ub", "name"].
-        """
+        """Return a series of variables."""
         # TODO: manage non linear constraint
         # https://github.com/gab23r/xplor/issues/1
 
-        return map_rows(
-            df,
-            lambda d: self.model.add_linear_constraint(eval(expr_str), name=name),
+        return pl.Series(
+            [
+                self.model.add_linear_constraint(eval(expr_str), name=f"{name}[{i}]")
+                for i, d in enumerate(df.rows())
+            ],
+            dtype=pl.Object,
         )
 
     def optimize(self, solver_type: parameters.SolverType | None = None) -> None:
