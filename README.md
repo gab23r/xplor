@@ -42,15 +42,19 @@ pip install xplor[all]
 
 Have a look to the documentation.
 
-## Current Status
+## 🟢 Current Status
 
-xplor is in active development. Currently supported:
-- ✅ Gurobi backend.
-- ✅ Ortools backend.
+`xplor` is in active development.
 
-Planned features:
-- 🚧 Support for additional solvers (CPLEX, hexaly, ...).
-- 🚧 Support non linear expressions
+### Currently Supported Backends
+
+* ✅ **Gurobi backend**
+* ✅ **OR-Tools backend**
+
+### Planned Features
+
+* 🚧 Support for additional solvers (CPLEX, Hexaly, and others).
+* 🚧 Support for non-linear expressions.
 
 ## Contributing
 

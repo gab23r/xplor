@@ -15,7 +15,6 @@ section.level2:first-of-type > h2:first-child,
 ::: {.column-margin}
 #### Links
 
-[View on PyPI](https://pypi.org/project/xplor/)<br>
 [llms.txt](llms.txt)<br>
 
 #### License
@@ -76,15 +75,19 @@ pip install xplor[all]
 
 Have a look to the documentation.
 
-### Current Status
+### 🟢 Current Status
 
-xplor is in active development. Currently supported:
-- ✅ Gurobi backend.
-- ✅ Ortools backend.
+`xplor` is in active development.
 
-Planned features:
-- 🚧 Support for additional solvers (CPLEX, hexaly, ...).
-- 🚧 Support non linear expressions
+#### Currently Supported Backends
+
+* ✅ **Gurobi backend**
+* ✅ **OR-Tools backend**
+
+#### Planned Features
+
+* 🚧 Support for additional solvers (CPLEX, Hexaly, and others).
+* 🚧 Support for non-linear expressions.
 
 ### Contributing
 

@@ -124,11 +124,8 @@ The `optimize()` method triggers the solver (Gurobi, in this case) to find the o
 # Set the objective to Maximize (since obj is profit)
 xmodel.model.setObjective(xmodel.model.getObjective(), sense=gp.GRB.MAXIMIZE)
 
-# Solve the model (guaranteed feasible)
+# Solve the model
 xmodel.optimize()
-# Gurobi Optimizer version...
-# ...
-# Optimal objective  4.000000000e+04
 ```
 
 ### Extracting the Objective Value
