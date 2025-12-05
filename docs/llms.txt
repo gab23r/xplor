@@ -17,4 +17,4 @@
 #### Other
 > Additional exports
 
-- [var](reference/var.html): The entry point for creating custom expression objects (ObjExpr) that represent
+- [var](reference/var.html): The entry point for creating custom expression objects (VarExpr) that represent
