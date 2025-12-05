@@ -33,9 +33,9 @@ def test_linear_optimization_problem(
     xmodel = ModelClass()  # type: ignore
 
     df = pl.DataFrame({"lb": [-1.0, 0.0], "ub": [1.5, 1.0], "obj": [-1, -2]}).with_columns(
-        xmodel.var("x", lb="lb", ub="ub", obj="obj", vtype=vtype)
+        xmodel.add_vars("x", lb="lb", ub="ub", obj="obj", vtype=vtype)
     )
-    df.select(xmodel.constr(xplor.var.x.sum() <= 1.5))
+    df.select(xmodel.add_constrs(xplor.var.x.sum() <= 1.5))
 
     xmodel.optimize(solver_arg)
 

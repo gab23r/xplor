@@ -49,7 +49,6 @@ uv sync
 
 # Install and run the pre-commit hooks
 uv run prek install
-uv run prek run -a
 
 # Run test
 uv run pytest

@@ -53,6 +53,8 @@ quartodoc:
     contents:
     - XplorModel
     - VarType
+    - XplorGurobi
+    - XplorMathOpt
   - title: Other
     desc: Additional exports
     contents:

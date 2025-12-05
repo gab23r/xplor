@@ -25,13 +25,17 @@ class XplorModel(ABC):
     def __init__(self, model: gp.Model | mathopt.Model) -> None:
         """Initialize the model wrapper.
 
-        Concrete implementations must handle model initialization and setup.
+        Parameters
+        ----------
+        model : gurobipy.Model | mathopt.Model
+            The instantiated underlying solver model object.
+
         """
         self.model = model
         self.vars: dict[str, pl.Series] = {}
         self.var_types: dict[str, VarType] = {}
 
-    def var(
+    def add_vars(
         self,
         name: str,
         *,
@@ -43,25 +47,58 @@ class XplorModel(ABC):
     ) -> pl.Expr:
         """Define and return a Var expression for optimization variables.
 
+        This method generates a Polars expression that, when consumed (e.g., via
+        `.with_columns()`), creates optimization variables for every row and adds
+        them to the underlying solver model.
+
         Parameters
         ----------
         name : str
-            The base name for the variables.
-        lb : float | str | pl.Expr
-            Lower bound for created variables.
-        ub : float | str | pl.Expr
-            Upper bound for created variables.
-        obj: float | str | pl.Expr
-            Objective function coefficient for created variables.
-        indices: list[str]
-            Keys (column names) that uniquely identify each variable.
-        vtype: VarType | None, default to None.
-            The type of the variable. Will default to CONTINUOUS.
+            The base name for the variables (e.g., "production" or "flow").
+            This name is used to retrieve variable values after optimization.
+        lb : float | str | pl.Expr, default 0.0
+            Lower bound for created variables. Can be a scalar, a column name (str),
+            or a Polars expression.
+        ub : float | str | pl.Expr | None, default None
+            Upper bound for created variables. If None, the solver default is used.
+        obj: float | str | pl.Expr, default 0.0
+            Objective function coefficient for created variables. Can be a scalar,
+            a column name, or a Polars expression.
+        indices: list[str] | pl.Expr | None, default pl.row_index()
+            Keys (column names) that uniquely identify each variable instance.
+            Used to format the internal variable names (e.g., 'x[1,2]').
+        vtype: VarType | None, default VarType.CONTINUOUS
+            The type of the variable (CONTINUOUS, INTEGER, or BINARY).
 
         Returns
         -------
-        Var
-            A Var expression that, when consumed, adds variables to the model.
+        pl.Expr
+            A Polars expression (`Var`) that, when executed, adds variables to the model
+            and returns them as an `Object` Series in the DataFrame.
+
+        Examples
+        --------
+        Assuming `xmodel` is an instance of a concrete class (`XplorGurobi`).
+
+        ```python
+        # 1. Basic variable creation using columns for bounds:
+        >>> data = pl.DataFrame({"max_limit": [10.0, 5.0]})
+        >>> df = data.with_columns(
+        ...     xmodel.add_vars("x", lb=0.0, ub=pl.col("max_limit"), obj=1.0)
+        ... )
+        # df["x"] now contains gurobipy.Var or mathopt.Variable objects.
+
+        # s2. Creating integer variables indexed by two columns:
+        >>> data = pl.DataFrame({"time": [1, 1, 2, 2], "resource": ["A", "B", "A", "B"]})
+        >>> df = data.with_columns(
+        ...     xmodel.add_vars(
+        ...         "sched",
+        ...         indices=["time", "resource"],
+        ...         vtype=VarType.INTEGER,
+        ...     )
+        ... )
+        # Variable names will look like 'sched[1,A]', 'sched[1,B]', etc.
+        ```
 
         """
         indices = pl.row_index() if indices is None else indices
@@ -77,20 +114,47 @@ class XplorModel(ABC):
             return_dtype=pl.Object,
         ).alias(name)
 
-    def constr(self, expr: ObjExpr, name: str | None = None) -> pl.Expr:
-        """Define and return a Constr expression for model constraints.
+    def add_constrs(self, expr: ObjExpr, name: str | None = None) -> pl.Expr:
+        r"""Define and return a Constr expression for model constraints.
+
+        This method accepts a symbolic relational expression (e.g., `x <= 5`)
+        and generates a Polars expression that, when consumed (e.g., via `.select()`),
+        adds the constraints to the underlying solver model.
+
+        The constraint is added row-wise if the input expression is a Series of
+        expressions, or as a single constraint if the expression is aggregated
+        (e.g., using `.sum()`).
 
         Parameters
         ----------
         expr : ObjExpr
-            The constraint expression (e.g., a relational expression).
+            The constraint expression (e.g., a relational expression like
+            `xplor.var("x").sum() <= 10`).
         name : str | None, default None
-            The base name for the constraints.
+            The base name for the constraints. If None, the name is deduced
+            from the symbolic expression string (e.g., "x.sum() <= 10").
 
         Returns
         -------
-        Constr
-            A Constr expression that, when consumed, adds constraints to the model.
+        pl.Expr
+            A Polars expression (`Constr`) that, when executed, adds constraints
+            to the model and returns them as an `Object` Series in the DataFrame.
+
+        Examples
+        --------
+        Assuming `df` has been created and contains the variable Series `df["x"]`.
+
+        ```python
+        # Row-wise constrain:
+        >>> df.select(
+        ...     xmodel.add_constrs(xplor.var("x") <= pl.col("capacity"), name="max_per_item")
+        ... )
+
+        # Aggregated constraint:
+        >>> df.select(
+        ...     xmodel.add_constrs(xplor.var("x").sum() >= 100.0, name="min_production")
+        ... )
+        ```
 
         """
         expr_str, exprs = expr.process_expression()
@@ -105,19 +169,65 @@ class XplorModel(ABC):
 
     @abstractmethod
     def optimize(self, solver_type: Any | None = None) -> Any:
-        """Solve the model."""
+        """Solve the model.
+
+        This method triggers the underlying solver to find the optimal solution
+        based on the defined variables, objective, and constraints.
+
+        Parameters
+        ----------
+        solver_type : Any | None, default None
+            Specific solver selection required by some backends (e.g., OR-Tools
+            requires a solver type like `SolverType.GUROBI`). Ignored by other
+            backends (e.g., Gurobi).
+
+        Returns
+        -------
+        Any
+            The result object specific to the underlying solver (e.g., `result.SolveResult`
+            for MathOpt, or None for Gurobi).
+
+        """
+        raise NotImplementedError
 
     @abstractmethod
     def get_objective_value(self) -> float:
-        """Return the objective value."""
+        """Return the objective value of the final solution.
+
+        Returns
+        -------
+        float
+            The value of the objective function from the solved model.
+
+        Raises
+        ------
+        Exception
+            If the model has not been optimized successfully.
+
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_variable_values(self, name: str) -> pl.Series:
+        """Read the value of an optimization variable series from the solution.
+
+        Parameters
+        ----------
+        name : str
+            The base name used when the variable series was created with `xmodel.add_vars()`.
+
+        Returns
+        -------
+        pl.Series
+            A Polars Series (Float64 or Integer) containing the optimal values
+            for the variables, aligned with the order of creation.
+
+        """
 
     @abstractmethod
     def _add_constrs(self, df: pl.DataFrame, name: str, expr_str: str) -> pl.Series:
         """Return a series of variables."""
-
-    @abstractmethod
-    def get_variable_values(self, name: str) -> pl.Series:
-        """Read the value of a variables."""
+        raise NotImplementedError
 
     @abstractmethod
     def _add_vars(
@@ -130,3 +240,4 @@ class XplorModel(ABC):
 
         `df` should contains columns: ["lb", "ub", "obj, "name"].
         """
+        raise NotImplementedError

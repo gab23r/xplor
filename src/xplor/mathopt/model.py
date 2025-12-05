@@ -14,9 +14,15 @@ class XplorMathOpt(XplorModel):
     result: result.SolveResult
 
     def __init__(self, model: mathopt.Model | None = None) -> None:
-        """Initialize the model wrapper.
+        """Initialize the XplorMathOpt model wrapper.
 
-        Concrete implementations must handle model initialization and setup.
+        If no MathOpt model is provided, a new one is instantiated.
+
+        Parameters
+        ----------
+        model : mathopt.Model | None, default None
+            An optional, pre-existing MathOpt model instance.
+
         """
         model = mathopt.Model() if model is None else model
         super().__init__(model=model)
@@ -27,9 +33,25 @@ class XplorMathOpt(XplorModel):
         name: str,
         vtype: VarType = VarType.CONTINUOUS,
     ) -> pl.Series:
-        """Return a series of variables.
+        """Return a series of MathOpt variables.
 
-        `df` should contains columns: ["lb", "ub", "obj", "name"].
+        Handles the conversion of Xplor's VarType to MathOpt's boolean `is_integer` flag.
+        For "BINARY" types, bounds are explicitly clipped to [0, 1] as a prerequisite for MathOpt.
+
+        Parameters
+        ----------
+        df : pl.DataFrame
+            A DataFrame containing the columns ["lb", "ub", "obj", "name"].
+        name : str
+            The base name for the variables.
+        vtype : VarType, default VarType.CONTINUOUS
+            The type of the variable.
+
+        Returns
+        -------
+        pl.Series
+            A Polars Object Series containing the created MathOpt variable objects.
+
         """
         # mathopt.Model don't super binary variable directly
         if vtype == "BINARY":
@@ -55,7 +77,26 @@ class XplorMathOpt(XplorModel):
         return self.vars[name]
 
     def _add_constrs(self, df: pl.DataFrame, name: str, expr_str: str) -> pl.Series:
-        """Return a series of variables."""
+        """Return a series of MathOpt linear constraints.
+
+        This method is called by `XplorModel.add_constrs` after the expression
+        has been processed into rows of data and a constraint string.
+
+        Parameters
+        ----------
+        df : pl.DataFrame
+            A DataFrame containing the necessary components for the constraint expression.
+        name : str
+            The base name for the constraint.
+        expr_str : str
+            The evaluated string representation of the constraint expression (e.g., "x_1 + x_2 <= 10").
+
+        Returns
+        -------
+        pl.Series
+            A Polars Object Series containing the created MathOpt constraint objects.
+
+        """
         # TODO: manage non linear constraint
         # https://github.com/gab23r/xplor/issues/1
 
@@ -68,19 +109,77 @@ class XplorMathOpt(XplorModel):
         )
 
     def optimize(self, solver_type: parameters.SolverType | None = None) -> None:
-        """Solve the model."""
+        """Solve the MathOpt model.
+
+        Uses `mathopt.solve()` to solve the model and stores the result internally.
+
+        Parameters
+        ----------
+        solver_type : parameters.SolverType | None, default SolverType.GLOP
+            The specific OR-Tools solver to use (e.g., GLOP, GSCIP).
+            Defaults to MathOpt's native GLOP solver if none is provided.
+
+        Returns
+        -------
+        None
+
+        Examples
+        --------
+        1. Using the default solver (GLOP):
+           >>> xmodel.optimize()
+
+        2. Specifying a different solver (requires setup/licensing for commercial solvers):
+           >>> from ortools.math_opt.python.parameters import SolverType
+           >>> xmodel.optimize(solver_type=SolverType.GUROBI)
+
+        """
         solver_type = mathopt.SolverType.GLOP if solver_type is None else solver_type
         self.result = mathopt.solve(self.model, solver_type)
 
     def get_objective_value(self) -> float:
-        """Return the objective value."""
+        """Return the objective value from the solved MathOpt model.
+
+        The value is read from the stored `result` object.
+
+        Returns
+        -------
+        float
+            The value of the objective function.
+
+        Raises
+        ------
+        Exception
+            If the model has not been optimized successfully (i.e., `self.result` is None).
+
+        """
         if self.result is None:
             msg = "The model is not optimized."
             raise Exception(msg)
         return self.result.objective_value()
 
     def get_variable_values(self, name: str) -> pl.Series:
-        """Read the value of a variables."""
+        """Read the optimal values of a variable series from the MathOpt solution.
+
+        The method ensures the returned Polars Series has the correct data type
+        (Float64 for continuous, Int64 for integer/binary).
+
+        Parameters
+        ----------
+        name : str
+            The base name used when the variable series was created with `xmodel.add_vars()`.
+
+        Returns
+        -------
+        pl.Series
+            A Polars Series containing the optimal variable values.
+
+        Examples
+        --------
+        >>> # Assuming 'production' was the variable name used in add_vars
+        >>> solution_series = xmodel.get_variable_values("production")
+        >>> df_with_solution = df.with_columns(solution_series.alias("solution"))
+
+        """
         return cast_to_dtypes(
             pl.Series(name, self.result.variable_values(self.vars[name])), self.var_types[name]
         )

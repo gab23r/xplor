@@ -27,9 +27,9 @@ xmodel.model.Params.TimeLimit = 10.0
 
 -----
 
-## Creating Variables (`xmodel.var()`)
+## Creating Variables
 
-In `xplor`, optimization variables are defined on a per-row basis within a Polars `DataFrame`. The `xmodel.var()` method is called *within* a `.with_columns()` operation on a DataFrame.
+In `xplor`, optimization variables are defined on a per-row basis within a Polars `DataFrame`. The `xmodel.add_vars()` method is called *within* a `.with_columns()` operation on a DataFrame.
 
 
 ### Example: Variables with Bounds and Objective Costs
@@ -54,8 +54,8 @@ data = pl.DataFrame({
 MAX_LABOR = 1500.0
 MAX_WEIGHT = 1000.0
 
-# Add variables to the DataFrame using xmodel.var()
-df = data.with_columns(xmodel.var("x", lb="min_prod", ub="max_prod", obj="profit", indices=["product"]))
+# Add variables to the DataFrame using xmodel.add_vars()
+df = data.with_columns(xmodel.add_vars("x", lb="min_prod", ub="max_prod", obj="profit", indices=["product"]))
 df
 # shape: (2, 7)
 # ┌─────────┬────────┬──────────┬───────────┬─────────────────┬────────────────────┐
@@ -95,12 +95,12 @@ df
 ## Adding Constraints
 
 
-The `xmodel.constr()` method captures the symbolic expression, executes it in the context of the DataFrame, and adds the resulting constraints to the underlying solver model.
+The `xmodel.add_constrs()` method captures the symbolic expression, executes it in the context of the DataFrame, and adds the resulting constraints to the underlying solver model.
 
 ```python
 df.select(
-    xmodel.constr(xplor.var("labor_usage").sum() <= MAX_LABOR, name="maxlabor"),
-    xmodel.constr((xplor.var("x") * pl.col("material_weight")).sum() <= MAX_WEIGHT) # name is deduce from the expression!
+    xmodel.add_constrs(xplor.var("labor_usage").sum() <= MAX_LABOR, name="maxlabor"),
+    xmodel.add_constrs((xplor.var("x") * pl.col("material_weight")).sum() <= MAX_WEIGHT) # name is deduce from the expression!
 )
 # shape: (1, 2)
 # ┌─────────────────────────────┬─────────────────────────────────┐

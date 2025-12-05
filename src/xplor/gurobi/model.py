@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import gurobipy as gp
 import polars as pl
 
@@ -6,14 +8,25 @@ from xplor.types import VarType, cast_to_dtypes
 
 
 class XplorGurobi(XplorModel):
-    """Xplor base class to wrap your Gurobi model."""
+    """Xplor wrapper for the Gurobi optimization solver.
+
+    This class implements the `XplorModel` abstract methods using the Gurobi Python API
+    (`gurobipy`), specifically utilizing the efficient vectorized operations provided
+    by `addMVar` for variable creation.
+    """
 
     model: gp.Model
 
     def __init__(self, model: gp.Model | None = None) -> None:
-        """Initialize the model wrapper.
+        """Initialize the XplorGurobi model wrapper.
 
-        Concrete implementations must handle model initialization and setup.
+        If no Gurobi model is provided, a new one is instantiated.
+
+        Parameters
+        ----------
+        model : gurobipy.Model | None, default None
+            An optional, pre-existing Gurobi model instance.
+
         """
         model = gp.Model() if model is None else model
         super().__init__(model=model)
@@ -24,9 +37,26 @@ class XplorGurobi(XplorModel):
         name: str,
         vtype: VarType = VarType.CONTINUOUS,
     ) -> pl.Series:
-        """Return a series of variables.
+        """Return a series of gurobi variables`.
 
-        `df` should contains columns: ["lb", "ub", "obj", "name"].
+        This method leverages NumPy arrays from Polars columns to perform vectorized
+        variable creation, setting the lower bound, upper bound, and objective
+        coefficient in a single call.
+
+        Parameters
+        ----------
+        df : pl.DataFrame
+            A DataFrame containing the columns ["lb", "ub", "obj", "name"].
+        name : str
+            The base name for the variables.
+        vtype : VarType, default VarType.CONTINUOUS
+            The type of the variable.
+
+        Returns
+        -------
+        pl.Series
+            A Polars Object Series containing the created Gurobi variable objects.
+
         """
         self.var_types[name] = vtype
         self.vars[name] = pl.Series(
@@ -44,7 +74,27 @@ class XplorGurobi(XplorModel):
         return self.vars[name]
 
     def _add_constrs(self, df: pl.DataFrame, name: str, expr_str: str) -> pl.Series:
-        """Return a series of variables."""
+        """Return a series of gurobi linear constraints.
+
+        This method iterates over the rows of the processed DataFrame to add constraints
+        individually, as Gurobi's `addConstrs` does not easily support complex vectorized
+        Polars-derived expressions.
+
+        Parameters
+        ----------
+        df : pl.DataFrame
+            A DataFrame containing the necessary components for the constraint expression.
+        name : str
+            The base name for the constraint.
+        expr_str : str
+            The evaluated string representation of the constraint expression (e.g., "x_1 + x_2 <= 10").
+
+        Returns
+        -------
+        pl.Series
+            A Polars Object Series containing the created Gurobi constraint objects.
+
+        """
         # TODO: manage non linear constraint
         # https://github.com/gab23r/xplor/issues/1
 
@@ -70,16 +120,59 @@ class XplorGurobi(XplorModel):
         return series
 
     def optimize(self, solver_type: None = None) -> None:
-        """Solve the model.
+        """Solve the Gurobi model.
 
-        solver_type is ignored for Gurobi models.
+        Calls the Gurobi model's built-in `optimize()` method. The `solver_type`
+        parameter is accepted for API consistency with `XplorModel`, but is ignored,
+        as Gurobi manages its own solver configuration.
+
+        Parameters
+        ----------
+        solver_type : None, default None
+            Ignored parameter, kept for consistency with the abstract base class.
+
+        Returns
+        -------
+        None
+
         """
         self.model.optimize()
 
     def get_objective_value(self) -> float:
-        """Return the objective value."""
+        """Return the objective value from the solved Gurobi model.
+
+        The value is retrieved directly from the Gurobi model's objective object.
+
+        Returns
+        -------
+        float
+            The value of the objective function.
+
+        """
         return self.model.getObjective().getValue()
 
     def get_variable_values(self, name: str) -> pl.Series:
-        """Read the value of a variables."""
+        """Read the optimal values of a variable series from the Gurobi solution.
+
+        The method reads the `.x` attribute from each Gurobi variable object and
+        ensures the returned Polars Series has the correct data type
+        (Float64 for continuous, Int64 for integer/binary).
+
+        Parameters
+        ----------
+        name : str
+            The base name used when the variable series was created with `xmodel.add_vars()`.
+
+        Returns
+        -------
+        pl.Series
+            A Polars Series containing the optimal variable values.
+
+        Examples
+        --------
+        >>> # Assuming 'flow' was the variable name used in add_vars
+        >>> solution_series = xmodel.get_variable_values("flow")
+        >>> df_with_solution = df.with_columns(solution_series.alias("solution"))
+
+        """
         return cast_to_dtypes(pl.Series(name, [e.x for e in self.vars[name]]), self.var_types[name])

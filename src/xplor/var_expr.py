@@ -85,9 +85,23 @@ class VarExpr(ObjExpr):
         )
 
 
-class ProxyObjExpr:
+class _ProxyObjExpr:
     """The entry point for creating custom expression objects (ObjExpr) that represent
     variables or columns used within a composite Polars expression chain.
+
+    This proxy acts similarly to `polars.col()`, allowing you to reference
+    optimization variables (created via `xmodel.add_vars()`) or standard DataFrame columns
+    in a solver-compatible expression.
+
+    The resulting expression object can be combined with standard Polars expressions
+    to form constraints or objective function components.
+
+    Examples:
+    ```python
+
+    >>> df.select(total_cost = xplor.var("production") * pl.col("cost"))
+    ```
+
     """
 
     def __call__(
@@ -122,6 +136,3 @@ class ProxyObjExpr:
 
         """
         return VarExpr(pl.col(name))
-
-
-var = ProxyObjExpr()
