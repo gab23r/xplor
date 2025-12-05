@@ -1,0 +1,20 @@
+# xplor
+
+> A unified framework for Operation Research modeling with polars
+
+## Docs
+
+### API Reference
+
+#### Classes
+> Core classes and types
+
+- [XplorModel](https://gab23r.github.io/xplor/reference/XplorModel.html): Abstract base class for all Xplor optimization model wrappers
+- [VarType](https://gab23r.github.io/xplor/reference/VarType.html): The type of the variable
+- [XplorGurobi](https://gab23r.github.io/xplor/reference/XplorGurobi.html): Xplor wrapper for the Gurobi optimization solver
+- [XplorMathOpt](https://gab23r.github.io/xplor/reference/XplorMathOpt.html): Xplor base class to wrap your MathOpt model
+
+#### Other
+> Additional exports
+
+- [var](https://gab23r.github.io/xplor/reference/var.html): The entry point for creating custom expression objects (VarExpr) that represent
