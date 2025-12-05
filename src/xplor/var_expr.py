@@ -86,7 +86,7 @@ class VarExpr(ObjExpr):
 
 
 class _ProxyObjExpr:
-    """The entry point for creating custom expression objects (ObjExpr) that represent
+    """The entry point for creating custom expression objects (VarExpr) that represent
     variables or columns used within a composite Polars expression chain.
 
     This proxy acts similarly to `polars.col()`, allowing you to reference
