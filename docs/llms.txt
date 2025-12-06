@@ -11,8 +11,8 @@
 
 - [XplorModel](https://gab23r.github.io/xplor/reference/XplorModel.html): Abstract base class for all Xplor optimization model wrappers
 - [VarType](https://gab23r.github.io/xplor/reference/VarType.html): The type of the variable
-- [XplorGurobi](https://gab23r.github.io/xplor/reference/XplorGurobi.html): Xplor wrapper for the Gurobi optimization solver
-- [XplorMathOpt](https://gab23r.github.io/xplor/reference/XplorMathOpt.html): Xplor base class to wrap your MathOpt model
+- [XplorGurobi](https://gab23r.github.io/xplor/reference/XplorGurobi.html): Xplor wrapper for the Gurobi solver
+- [XplorMathOpt](https://gab23r.github.io/xplor/reference/XplorMathOpt.html): Xplor wrapper for the OR-Tools MathOpt solver
 
 #### Other
 > Additional exports

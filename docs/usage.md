@@ -1,3 +1,6 @@
+---
+title: Basic usage
+---
 # `xplor`: Vectorized Optimization Modeling
 
 Welcome to `xplor`. This guide shows you how to use familiar **polars DataFrame** operations to build optimization models, abstracting away the specific syntax of underlying solvers like **Gurobi** and **MathOpt**. Learn how to map your data directly into variables, constraints, and objective functions.

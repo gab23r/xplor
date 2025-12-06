@@ -8,7 +8,26 @@ from xplor.types import VarType, cast_to_dtypes
 
 
 class XplorMathOpt(XplorModel):
-    """Xplor base class to wrap your MathOpt model."""
+    """Xplor wrapper for the OR-Tools MathOpt solver.
+
+    This class extends `XplorModel` to provide an interface for building
+    and solving optimization problems using OR-Tools MathOpt.
+
+    Attributes
+    ----------
+    model : mathopt.Model
+        The underlying OR-Tools MathOpt model instance.
+    vars : dict[str, pl.Series]
+        A dictionary storing Polars Series of optimization variables,
+        indexed by name.
+    var_types : dict[str, VarType]
+        A dictionary storing the `VarType` (CONTINUOUS, INTEGER, BINARY)
+        for each variable series, indexed by its base name.
+    result : result.SolveResult
+        The result object returned by MathOpt after optimization.
+        It contains solution status, objective value, and variable values.
+
+    """
 
     model: mathopt.Model
     result: result.SolveResult

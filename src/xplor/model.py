@@ -20,6 +20,18 @@ class XplorModel(ABC):
 
     Defines the core interface for adding variables and constraints
     to the underlying optimization model (e.g., MathOpt, Gurobi, etc.).
+
+    Attributes
+    ----------
+    model : gurobipy.Model | mathopt.Model
+        The instantiated underlying solver model object.
+    vars : dict[str, pl.Series]
+        A dictionary storing Polars Series of optimization variables,
+        indexed by name.
+    var_types : dict[str, VarType]
+        A dictionary storing the `VarType` (CONTINUOUS, INTEGER, BINARY)
+        for each variable series, indexed by its base name.
+
     """
 
     def __init__(self, model: gp.Model | mathopt.Model) -> None:

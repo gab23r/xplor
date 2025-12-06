@@ -8,11 +8,23 @@ from xplor.types import VarType, cast_to_dtypes
 
 
 class XplorGurobi(XplorModel):
-    """Xplor wrapper for the Gurobi optimization solver.
+    """Xplor wrapper for the Gurobi solver.
 
-    This class implements the `XplorModel` abstract methods using the Gurobi Python API
-    (`gurobipy`), specifically utilizing the efficient vectorized operations provided
-    by `addMVar` for variable creation.
+    This class provides a specialized wrapper for Gurobi, translating XplorModel's
+    abstract operations into Gurobi-specific API calls for defining variables,
+    constraints, optimizing, and extracting solutions.
+
+    Attributes
+    ----------
+    model : gurobipy.Model | mathopt.Model
+        The instantiated underlying solver model object.
+    vars : dict[str, pl.Series]
+        A dictionary storing Polars Series of optimization variables,
+        indexed by name.
+    var_types : dict[str, VarType]
+        A dictionary storing the `VarType` (CONTINUOUS, INTEGER, BINARY)
+        for each variable series, indexed by its base name.
+
     """
 
     model: gp.Model

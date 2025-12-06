@@ -19,19 +19,23 @@ website:
     left:
     - text: Home
       href: index.qmd
-    - text: Getting Started
-      href: usage.md
     - text: API Reference
       href: reference/index.qmd
   sidebar:
-  - id: reference
+    style: docked
+    search: true
     contents:
+    - text: Introduction
+      href: index.qmd
+    - section: Getting Started
+      href: usage.md
+      contents:
+      - usage.md
     - section: Classes
       contents:
-      - reference/XplorModel.qmd
-      - reference/VarType.qmd
       - reference/XplorGurobi.qmd
       - reference/XplorMathOpt.qmd
+      - reference/VarType.qmd
     - section: Other
       contents:
       - reference/var.qmd
