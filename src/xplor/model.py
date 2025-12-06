@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     import gurobipy as gp
     from ortools.math_opt.python import mathopt
 
-    from xplor.obj_expr import ObjExpr
+    from xplor.obj_expr import ExpressionString, ObjExpr
 
 
 class XplorModel(ABC):
@@ -231,7 +231,7 @@ class XplorModel(ABC):
         """
 
     @abstractmethod
-    def _add_constrs(self, df: pl.DataFrame, name: str, expr_str: str) -> pl.Series:
+    def _add_constrs(self, df: pl.DataFrame, name: str, expr_str: ExpressionString) -> pl.Series:
         """Return a series of variables."""
         raise NotImplementedError
 

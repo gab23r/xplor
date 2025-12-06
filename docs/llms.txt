@@ -12,7 +12,7 @@
 - [VarType](https://gab23r.github.io/xplor/reference/VarType.html): The type of the variable
 - [XplorGurobi](https://gab23r.github.io/xplor/reference/XplorGurobi.html): Xplor wrapper for the Gurobi solver
 - [XplorMathOpt](https://gab23r.github.io/xplor/reference/XplorMathOpt.html): Xplor wrapper for the OR-Tools MathOpt solver
-- [XplorHexaly](https://gab23r.github.io/xplor/reference/XplorHexaly.html): Xplor wrapper for the Hexaly (formerly LocalSolver) solver
+- [XplorHexaly](https://gab23r.github.io/xplor/reference/XplorHexaly.html): Xplor wrapper for the OR-Tools MathOpt solver
 
 #### Other
 > Additional exports

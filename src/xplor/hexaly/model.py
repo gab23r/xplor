@@ -13,23 +13,21 @@ if TYPE_CHECKING:
 
 
 class XplorHexaly(XplorModel):
-    """Xplor wrapper for the Hexaly (formerly LocalSolver) solver.
+    """Xplor wrapper for the OR-Tools MathOpt solver.
 
     This class extends `XplorModel` to provide an interface for building
     and solving optimization problems using Hexaly.
 
     Attributes
     ----------
-    _solver : hexaly.LocalSolver
-        The underlying Hexaly LocalSolver instance.
-    model : hexaly.LSModel
+    optimizer: HexalyOptimizer
+    model : HxModel
         The model definition within the Hexaly solver.
-    _objective_expr : hexaly.LSExpression | None
-        An accumulated expression representing the model's objective function.
 
     """
 
-    optimizer: HexalyOptimizer  # Updated type hint
+    optimizer: HexalyOptimizer
+    model: HxModel
     _objective_expr: HxExpression | None = None  # To accumulate objective terms
 
     def __init__(self, optimizer: HexalyOptimizer | None = None) -> None:  # Updated type hint
@@ -42,9 +40,8 @@ class XplorHexaly(XplorModel):
             An optional, pre-existing Hexaly instance.
 
         """
-        self.optimizer = HexalyOptimizer() if optimizer is None else optimizer  # Updated call
-        self.model: HxModel = self.optimizer.model
-        super().__init__(model=self.model)  # Pass the LSModel instance to the parent
+        self.optimizer = HexalyOptimizer() if optimizer is None else optimizer
+        super().__init__(model=self.optimizer.model)
         self._objective_expr = None
 
     def _add_vars(
@@ -55,9 +52,7 @@ class XplorHexaly(XplorModel):
     ) -> pl.Series:
         """Return a series of Hexaly variables.
 
-        Handles the conversion of Xplor's VarType to Hexaly's variable types
-        (float_var, int_var). Hexaly does not have a distinct 'binary' type,
-        so it's represented as an integer variable with bounds [0, 1].
+        Handles the conversion of Xplor's VarType to Hexaly's variable types.
 
         Parameters
         ----------
@@ -86,8 +81,7 @@ class XplorHexaly(XplorModel):
                 var_f = lambda *_: self.model.bool  # noqa: E731
 
         for lb_, ub_, obj_, name_ in df.rows():
-            var = var_f(lb_, ub_)
-            var.set_name(name_)
+            (var := var_f(lb_, ub_)).set_name(name_)
             hexaly_vars.append(var)
 
             if obj_ != 0:
@@ -122,18 +116,19 @@ class XplorHexaly(XplorModel):
             A DataFrame containing the necessary components for the constraint expression.
         name : str
             The base name for the constraint.
-        expr_str : str
-            The evaluated string representation of the constraint expression
-            (e.g., "d[0] + d[0] <= 10").
+        expr_str : ExpressionString
+            The evaluated string representation of the constraint expression.
 
         Returns
         -------
         pl.Series
-            A Polars Object Series containing the created Hexaly constraint objects.
+            A Polars Object Series containing the namd of Hexaly constraint objects.
 
         """
+        [self.model.add_constraint(eval(expr_str)) for row in df.rows()]
         return pl.Series(
-            [self.model.add_constraint(eval(expr_str)) for d in df.rows()],
+            name,
+            [f"{name}[{i}]" for i in range(df.height)],
             dtype=pl.Object,
         )
 

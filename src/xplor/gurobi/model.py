@@ -127,7 +127,7 @@ class XplorGurobi(XplorModel):
 
         _add_constr = self.model.addLConstr
         series = pl.Series(
-            [_add_constr(eval(expr_str), name=f"{name}[{i}]") for i, d in enumerate(df.rows())],
+            [_add_constr(eval(expr_str), name=f"{name}[{i}]") for i, row in enumerate(df.rows())],
             dtype=pl.Object,
         )
         self.model.update()
