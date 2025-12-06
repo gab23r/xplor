@@ -11,9 +11,11 @@ from xplor.types import VarType, cast_to_dtypes
 if TYPE_CHECKING:
     from hexaly.modeler import HxExpression
 
+    from xplor.obj_expr import ExpressionRepr
+
 
 class XplorHexaly(XplorModel):
-    """Xplor wrapper for the OR-Tools MathOpt solver.
+    """Xplor wrapper for the Hexaly solver.
 
     This class extends `XplorModel` to provide an interface for building
     and solving optimization problems using Hexaly.
@@ -21,7 +23,7 @@ class XplorHexaly(XplorModel):
     Attributes
     ----------
     optimizer: HexalyOptimizer
-    model : HxModel
+    model: HxModel
         The model definition within the Hexaly solver.
 
     """
@@ -104,7 +106,7 @@ class XplorHexaly(XplorModel):
 
         return self.vars[name]
 
-    def _add_constrs(self, df: pl.DataFrame, name: str, expr_str: str) -> pl.Series:
+    def _add_constrs(self, df: pl.DataFrame, name: str, expr_repr: ExpressionRepr) -> pl.Series:
         """Return a series of Hexaly constraints.
 
         This method is called by `XplorModel.add_constrs` after the expression
@@ -116,7 +118,7 @@ class XplorHexaly(XplorModel):
             A DataFrame containing the necessary components for the constraint expression.
         name : str
             The base name for the constraint.
-        expr_str : ExpressionString
+        expr_repr : ExpressionRepr
             The evaluated string representation of the constraint expression.
 
         Returns
@@ -125,7 +127,7 @@ class XplorHexaly(XplorModel):
             A Polars Object Series containing the namd of Hexaly constraint objects.
 
         """
-        [self.model.add_constraint(eval(expr_str)) for row in df.rows()]
+        [self.model.add_constraint(expr_repr.evaluate(row)) for row in df.rows()]
         return pl.Series(
             name,
             [f"{name}[{i}]" for i in range(df.height)],

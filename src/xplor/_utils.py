@@ -11,7 +11,10 @@ def parse_into_expr(value: float | str | pl.Expr | None) -> pl.Expr:
         return pl.lit(value, dtype=pl.Null)
     elif isinstance(value, str):
         return pl.col(value)
-    return value
+    elif isinstance(value, pl.Expr):
+        return value
+    msg = f"Impossible to convert to expression: {value}"
+    raise Exception(msg)
 
 
 def map_rows(df: pl.DataFrame, f: Callable[[tuple], Any]) -> pl.Series:

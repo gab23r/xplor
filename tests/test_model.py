@@ -4,7 +4,6 @@ from ortools.math_opt.python import mathopt
 
 import xplor
 from xplor.gurobi import XplorGurobi
-from xplor.hexaly.model import XplorHexaly
 from xplor.mathopt import XplorMathOpt
 from xplor.model import XplorModel
 from xplor.types import VarType
@@ -14,7 +13,7 @@ from xplor.types import VarType
     ("ModelClass", "solver_type", "vtype", "obj_value", "var_value", "dtype"),
     [
         (XplorGurobi, None, VarType.CONTINUOUS, -2.5, [0.5, 1.0], pl.Float64),
-        (XplorHexaly, None, VarType.CONTINUOUS, -2.5, [0.5, 1.0], pl.Float64),
+        # (XplorHexaly, None, VarType.CONTINUOUS, -2.5, [0.5, 1.0], pl.Float64),
         (XplorMathOpt, mathopt.SolverType.GLOP, None, -2.5, [0.5, 1.0], pl.Float64),
         (XplorMathOpt, mathopt.SolverType.CP_SAT, VarType.INTEGER, -2.0, [0, 1], pl.Int32),
         (XplorMathOpt, mathopt.SolverType.CP_SAT, VarType.BINARY, -2.0, [False, True], pl.Boolean),

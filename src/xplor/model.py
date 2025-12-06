@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     import gurobipy as gp
     from ortools.math_opt.python import mathopt
 
-    from xplor.obj_expr import ExpressionString, ObjExpr
+    from xplor.obj_expr import ExpressionRepr, ObjExpr
 
 
 class XplorModel(ABC):
@@ -169,12 +169,12 @@ class XplorModel(ABC):
         ```
 
         """
-        expr_str, exprs = expr.process_expression()
-        name = name or expr._get_str(expr_str, exprs)
+        expr_repr, exprs = expr.process_expression()
+        name = name or expr._get_str(expr_repr, exprs)
         return pl.map_batches(
             exprs,
-            lambda s: self._add_constrs(
-                series_to_df(s, rename_series=True), name=name, expr_str=expr_str
+            lambda series: self._add_constrs(
+                series_to_df(series, rename_series=True), name=name, expr_repr=expr_repr
             ),
             return_dtype=pl.Object,
         ).alias(name)
@@ -194,7 +194,6 @@ class XplorModel(ABC):
             for MathOpt, or None for Gurobi).
 
         """
-        raise NotImplementedError
 
     @abstractmethod
     def get_objective_value(self) -> float:
@@ -211,7 +210,6 @@ class XplorModel(ABC):
             If the model has not been optimized successfully.
 
         """
-        raise NotImplementedError
 
     @abstractmethod
     def get_variable_values(self, name: str) -> pl.Series:
@@ -231,9 +229,8 @@ class XplorModel(ABC):
         """
 
     @abstractmethod
-    def _add_constrs(self, df: pl.DataFrame, name: str, expr_str: ExpressionString) -> pl.Series:
+    def _add_constrs(self, df: pl.DataFrame, name: str, expr_repr: ExpressionRepr) -> pl.Series:
         """Return a series of variables."""
-        raise NotImplementedError
 
     @abstractmethod
     def _add_vars(
@@ -246,4 +243,3 @@ class XplorModel(ABC):
 
         `df` should contains columns: ["lb", "ub", "obj, "name"].
         """
-        raise NotImplementedError

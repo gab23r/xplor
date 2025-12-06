@@ -31,8 +31,8 @@ repos:
         exclude: docs/
         language: system
         types: [python]
-    -   id: ty
-        name: ty
+    -   id: pytest
+        name: pytest
         entry: uv run pytest
         pass_filenames: false
         language: system

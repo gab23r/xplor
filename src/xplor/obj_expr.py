@@ -1,23 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, NewType
+from typing import Any
 
 import polars as pl
 
 from xplor._utils import map_rows, series_to_df
-
-ExpressionString = NewType("ExpressionString", str)
-"""
-A special string type used to represent expressions that need to be
-evaluated dynamically for each row of a Polars DataFrame.
-
-Example usage:
-```python
-expr_str = ExpressionString("row[0] * 2 + row[1]")
-df.map_rows(lambda row: eval(expr_str))
-```
-"""
 
 OPERATOR_MAP = {
     "__add__": "+",
@@ -32,6 +20,24 @@ OPERATOR_MAP = {
     "__ge__": ">=",
     "__le__": "<=",
 }
+
+
+class ExpressionRepr(str):
+    """A special string type used to represent expressions that need to be
+    evaluated dynamically for each row of a Polars DataFrame.
+
+    Example usage:
+    ```python
+    >>> expr_str = ExpressionRepr("row[0] * 2 + row[1]")
+    >>> row = (3, 5)
+    >>> expr_str.evaluate(row)
+    11
+    ```
+    """
+
+    def evaluate(self, row: tuple[float | int]) -> Any:
+        """Evaluate the expression with `row`."""
+        return eval(self, globals(), {"row": row})
 
 
 @dataclass
@@ -67,8 +73,7 @@ class ObjExpr(pl.Expr):
         return repr(self)
 
     def __repr__(self) -> str:
-        expr_repr, _ = self.process_expression()
-        return expr_repr
+        return self.process_expression()[0]
 
     def __str__(self) -> str:
         expr_repr, exprs = self.process_expression()
@@ -87,9 +92,7 @@ class ObjExpr(pl.Expr):
             raise Exception(msg)
         return pl.map_batches(
             exprs,
-            lambda s: map_rows(
-                series_to_df(s, rename_series=True), eval(f"lambda row: {expr_repr}")
-            ),
+            lambda s: map_rows(series_to_df(s, rename_series=True), expr_repr.evaluate),
             return_dtype=pl.Object,
         )._pyexpr
 
@@ -131,7 +134,7 @@ class ObjExpr(pl.Expr):
     def __ge__(self, other: object) -> ObjExpr:
         return self._append_node("__ge__", other)
 
-    def process_expression(self) -> tuple[ExpressionString, list[pl.Expr]]:
+    def process_expression(self) -> tuple[ExpressionRepr, list[pl.Expr]]:
         """Transform a composite object expression into a list of Polars sub-expressions
         and an equivalent lambda function, using integer indexing for all inputs.
         """
@@ -153,7 +156,7 @@ class ObjExpr(pl.Expr):
         # remove full outer parenthesis
         if self._nodes:
             expr_repr = expr_repr[1:-1]
-        return ExpressionString(expr_repr), exprs
+        return ExpressionRepr(expr_repr), exprs
 
     def _get_str(self, expr_repr: str, exprs: list[pl.Expr]) -> str:
         """Return the representation of the expression."""

@@ -55,6 +55,7 @@ dev = [
     "ipykernel>=7.1.0",
     "ty>=0.0.1a30",
     "prek>=0.2.19",
+    "pytest-cov>=7.0.0",
 ]
 docs = [
     "great-docs",
@@ -77,7 +78,7 @@ explicit=true
 
 [tool.uv.sources]
 great-docs = { git = "https://github.com/rich-iannone/great-docs.git" }
-hexaly = { index ="hexaly" }
+hexaly = { index = "hexaly" }
 
 [tool.ruff]
 line-length = 100

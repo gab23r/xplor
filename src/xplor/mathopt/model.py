@@ -9,7 +9,7 @@ from xplor.model import XplorModel
 from xplor.types import VarType, cast_to_dtypes
 
 if TYPE_CHECKING:
-    from xplor.obj_expr import ExpressionString
+    from xplor.obj_expr import ExpressionRepr
 
 
 class XplorMathOpt(XplorModel):
@@ -100,7 +100,7 @@ class XplorMathOpt(XplorModel):
 
         return self.vars[name]
 
-    def _add_constrs(self, df: pl.DataFrame, name: str, expr_str: ExpressionString) -> pl.Series:
+    def _add_constrs(self, df: pl.DataFrame, name: str, expr_repr: ExpressionRepr) -> pl.Series:
         """Return a series of MathOpt linear constraints.
 
         This method is called by `XplorModel.add_constrs` after the expression
@@ -112,7 +112,7 @@ class XplorMathOpt(XplorModel):
             A DataFrame containing the necessary components for the constraint expression.
         name : str
             The base name for the constraint.
-        expr_str : ExpressionString
+        expr_repr : ExpressionRepr
             The evaluated string representation of the constraint expression.
 
         Returns
@@ -125,8 +125,9 @@ class XplorMathOpt(XplorModel):
         # https://github.com/gab23r/xplor/issues/1
 
         return pl.Series(
+            name,
             [
-                self.model.add_linear_constraint(eval(expr_str), name=f"{name}[{i}]")
+                self.model.add_linear_constraint(expr_repr.evaluate(row), name=f"{name}[{i}]")
                 for i, row in enumerate(df.rows())
             ],
             dtype=pl.Object,
