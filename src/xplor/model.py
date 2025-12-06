@@ -180,18 +180,12 @@ class XplorModel(ABC):
         ).alias(name)
 
     @abstractmethod
-    def optimize(self, solver_type: Any | None = None) -> Any:
+    def optimize(self, **kwargs: Any) -> Any:
         """Solve the model.
 
         This method triggers the underlying solver to find the optimal solution
         based on the defined variables, objective, and constraints.
 
-        Parameters
-        ----------
-        solver_type : Any | None, default None
-            Specific solver selection required by some backends (e.g., OR-Tools
-            requires a solver type like `SolverType.GUROBI`). Ignored by other
-            backends (e.g., Gurobi).
 
         Returns
         -------

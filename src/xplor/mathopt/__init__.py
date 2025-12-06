@@ -1,4 +1,4 @@
-"""Gurobi backend."""
+"""Xplor MathOpt backend."""
 
 from xplor.mathopt.model import XplorMathOpt
 

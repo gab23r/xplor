@@ -1,4 +1,4 @@
-"""Gurobi backend."""
+"""Xplor Gurobi backend."""
 
 from xplor.gurobi.model import XplorGurobi
 

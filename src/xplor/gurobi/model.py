@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import gurobipy as gp
 import polars as pl
 
@@ -131,24 +133,16 @@ class XplorGurobi(XplorModel):
         self.model.update()
         return series
 
-    def optimize(self, solver_type: None = None) -> None:
+    def optimize(self, **kwargs: Any) -> None:
         """Solve the Gurobi model.
 
         Calls the Gurobi model's built-in `optimize()` method. The `solver_type`
         parameter is accepted for API consistency with `XplorModel`, but is ignored,
         as Gurobi manages its own solver configuration.
 
-        Parameters
-        ----------
-        solver_type : None, default None
-            Ignored parameter, kept for consistency with the abstract base class.
-
-        Returns
-        -------
-        None
 
         """
-        self.model.optimize()
+        self.model.optimize(**kwargs)
 
     def get_objective_value(self) -> float:
         """Return the objective value from the solved Gurobi model.

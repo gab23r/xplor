@@ -356,6 +356,18 @@ wheels = [
 ]
 
 [[package]]
+name = "hexaly"
+version = "14.0.20251203"
+source = { registry = "https://pip.hexaly.com/" }
+wheels = [
+    { url = "https://pip.hexaly.com/hexaly/hexaly-14.0.20251203-py2.py3.py27.py36.py37.py38.py39.py310.py311.py312.py313.py314-none-linux_aarch64.whl" },
+    { url = "https://pip.hexaly.com/hexaly/hexaly-14.0.20251203-py2.py3.py27.py36.py37.py38.py39.py310.py311.py312.py313.py314-none-linux_x86_64.whl" },
+    { url = "https://pip.hexaly.com/hexaly/hexaly-14.0.20251203-py2.py3.py27.py36.py37.py38.py39.py310.py311.py312.py313.py314-none-macosx_10_11_x86_64.whl" },
+    { url = "https://pip.hexaly.com/hexaly/hexaly-14.0.20251203-py2.py3.py27.py36.py37.py38.py39.py310.py311.py312.py313.py314-none-macosx_11_0_arm64.whl" },
+    { url = "https://pip.hexaly.com/hexaly/hexaly-14.0.20251203-py2.py3.py27.py36.py37.py38.py39.py310.py311.py312.py313.py314-none-win_amd64.whl" },
+]
+
+[[package]]
 name = "idna"
 version = "3.11"
 source = { registry = "https://pypi.python.org/simple" }
@@ -1617,12 +1629,16 @@ dependencies = [
 [package.optional-dependencies]
 all = [
     { name = "gurobipy" },
+    { name = "hexaly" },
     { name = "numpy" },
     { name = "ortools" },
 ]
 gurobi = [
     { name = "gurobipy" },
     { name = "numpy" },
+]
+hexaly = [
+    { name = "hexaly" },
 ]
 ortools = [
     { name = "ortools" },
@@ -1647,13 +1663,15 @@ extras = [
 [package.metadata]
 requires-dist = [
     { name = "gurobipy", marker = "extra == 'gurobi'", specifier = ">=11.0.3" },
+    { name = "hexaly", marker = "extra == 'hexaly'", specifier = ">=14.0.20251203", index = "https://pip.hexaly.com/" },
     { name = "numpy", marker = "extra == 'gurobi'", specifier = ">=2.1.2" },
     { name = "ortools", marker = "extra == 'ortools'", specifier = ">=9.11.4210" },
     { name = "polars", specifier = ">=1.35" },
     { name = "xplor", extras = ["gurobi"], marker = "extra == 'all'" },
+    { name = "xplor", extras = ["hexaly"], marker = "extra == 'all'" },
     { name = "xplor", extras = ["ortools"], marker = "extra == 'all'" },
 ]
-provides-extras = ["gurobi", "ortools", "all"]
+provides-extras = ["gurobi", "ortools", "hexaly", "all"]
 
 [package.metadata.requires-dev]
 dev = [
