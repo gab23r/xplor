@@ -1,3 +1,6 @@
+
+<img src="static/banner.png" alt="A polars based optimization framework" height="200px">
+
 # xplor: A Modern DataFrame-Centric Optimization Framework
 
 [![PyPI version](https://badge.fury.io/py/xplor.svg)](https://badge.fury.io/py/xplor)

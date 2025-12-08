@@ -15,12 +15,14 @@ format:
 website:
   page-navigation: true
   title: Xplor
+  favicon: static/logo.png
   navbar:
     left:
     - text: Home
       href: index.qmd
     - text: API Reference
       href: reference/index.qmd
+    - file: static/logo.png
   sidebar:
     style: docked
     search: true
