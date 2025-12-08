@@ -35,6 +35,7 @@ website:
       contents:
       - reference/XplorGurobi.qmd
       - reference/XplorMathOpt.qmd
+      - reference/XplorHexaly.qmd
       - reference/VarType.qmd
     - section: Other
       contents:
@@ -55,10 +56,10 @@ quartodoc:
   - title: Classes
     desc: Core classes and types
     contents:
-    - XplorModel
     - VarType
     - XplorGurobi
     - XplorMathOpt
+    - XplorHexaly
   - title: Other
     desc: Additional exports
     contents:

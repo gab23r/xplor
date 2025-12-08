@@ -50,10 +50,11 @@ Have a look to the [documentation](https://gab23r.github.io/xplor/usage.html).
 
 * ✅ **Gurobi backend**
 * ✅ **OR-Tools backend**
+* ✅ **Hexaly backend**
 
 ### Planned Features
 
-* 🚧 Support for additional solvers (CPLEX, Hexaly, and others).
+* 🚧 Support for additional solvers (CPLEX, ...).
 * 🚧 Support for non-linear expressions.
 
 ## Contributing

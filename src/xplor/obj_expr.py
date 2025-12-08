@@ -22,6 +22,24 @@ OPERATOR_MAP = {
 }
 
 
+class ExpressionRepr(str):
+    """A special string type used to represent expressions that need to be
+    evaluated dynamically for each row of a Polars DataFrame.
+
+    Example usage:
+    ```python
+    >>> expr_str = ExpressionRepr("row[0] * 2 + row[1]")
+    >>> row = (3, 5)
+    >>> expr_str.evaluate(row)
+    11
+    ```
+    """
+
+    def evaluate(self, row: tuple[float | int]) -> Any:
+        """Evaluate the expression with `row`."""
+        return eval(self, globals(), {"row": row})
+
+
 @dataclass
 class ObjExprNode:
     """Represents a single operation (operator) and its value (operand)."""
@@ -55,8 +73,7 @@ class ObjExpr(pl.Expr):
         return repr(self)
 
     def __repr__(self) -> str:
-        expr_repr, _ = self.process_expression()
-        return expr_repr
+        return self.process_expression()[0]
 
     def __str__(self) -> str:
         expr_repr, exprs = self.process_expression()
@@ -75,7 +92,7 @@ class ObjExpr(pl.Expr):
             raise Exception(msg)
         return pl.map_batches(
             exprs,
-            lambda s: map_rows(series_to_df(s, rename_series=True), eval(f"lambda d: {expr_repr}")),
+            lambda s: map_rows(series_to_df(s, rename_series=True), expr_repr.evaluate),
             return_dtype=pl.Object,
         )._pyexpr
 
@@ -117,17 +134,17 @@ class ObjExpr(pl.Expr):
     def __ge__(self, other: object) -> ObjExpr:
         return self._append_node("__ge__", other)
 
-    def process_expression(self) -> tuple[str, list[pl.Expr]]:
+    def process_expression(self) -> tuple[ExpressionRepr, list[pl.Expr]]:
         """Transform a composite object expression into a list of Polars sub-expressions
         and an equivalent lambda function, using integer indexing for all inputs.
         """
         exprs: list[pl.Expr] = [self._expr]
-        expr_repr = "d[0]"
+        expr_repr = "row[0]"
 
         for node in self._nodes:
             if isinstance(node.operand, pl.Expr):
                 exprs.append(node.operand)
-                operand_str = f"d[{len(exprs) - 1}]"
+                operand_str = f"row[{len(exprs) - 1}]"
             else:
                 operand_str = node.operand
 
@@ -139,7 +156,7 @@ class ObjExpr(pl.Expr):
         # remove full outer parenthesis
         if self._nodes:
             expr_repr = expr_repr[1:-1]
-        return expr_repr, exprs
+        return ExpressionRepr(expr_repr), exprs
 
     def _get_str(self, expr_repr: str, exprs: list[pl.Expr]) -> str:
         """Return the representation of the expression."""
@@ -157,7 +174,7 @@ class ObjExpr(pl.Expr):
 
             # Perform the replacement
             expr_str = expr_str.replace(
-                f"d[{i}]",
+                f"row[{i}]",
                 replacement,
             )
 

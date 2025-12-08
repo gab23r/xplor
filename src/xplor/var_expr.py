@@ -106,10 +106,7 @@ class _ProxyObjExpr:
 
     """
 
-    def __call__(
-        self,
-        name: str,
-    ) -> VarExpr:
+    def __call__(self, name: str, /) -> VarExpr:
         """Create an ObjExpr instance using the call syntax: `var("column_name")`.
 
         This method is typically used when the variable name contains characters

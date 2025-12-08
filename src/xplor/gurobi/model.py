@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 import gurobipy as gp
 import polars as pl
 
 from xplor.model import XplorModel
 from xplor.types import VarType, cast_to_dtypes
+
+if TYPE_CHECKING:
+    from xplor.obj_expr import ExpressionRepr
 
 
 class XplorGurobi(XplorModel):
@@ -85,7 +90,7 @@ class XplorGurobi(XplorModel):
         self.model.update()
         return self.vars[name]
 
-    def _add_constrs(self, df: pl.DataFrame, name: str, expr_str: str) -> pl.Series:
+    def _add_constrs(self, df: pl.DataFrame, name: str, expr_repr: ExpressionRepr) -> pl.Series:
         """Return a series of gurobi linear constraints.
 
         This method iterates over the rows of the processed DataFrame to add constraints
@@ -98,8 +103,8 @@ class XplorGurobi(XplorModel):
             A DataFrame containing the necessary components for the constraint expression.
         name : str
             The base name for the constraint.
-        expr_str : str
-            The evaluated string representation of the constraint expression (e.g., "x_1 + x_2 <= 10").
+        expr_repr : ExpressionRepr
+            The evaluated string representation of the constraint expression.
 
         Returns
         -------
@@ -125,30 +130,25 @@ class XplorGurobi(XplorModel):
 
         _add_constr = self.model.addLConstr
         series = pl.Series(
-            [_add_constr(eval(expr_str), name=f"{name}[{i}]") for i, d in enumerate(df.rows())],
+            [
+                _add_constr(expr_repr.evaluate(row), name=f"{name}[{i}]")
+                for i, row in enumerate(df.rows())
+            ],
             dtype=pl.Object,
         )
         self.model.update()
         return series
 
-    def optimize(self, solver_type: None = None) -> None:
+    def optimize(self, **kwargs: Any) -> None:
         """Solve the Gurobi model.
 
         Calls the Gurobi model's built-in `optimize()` method. The `solver_type`
         parameter is accepted for API consistency with `XplorModel`, but is ignored,
         as Gurobi manages its own solver configuration.
 
-        Parameters
-        ----------
-        solver_type : None, default None
-            Ignored parameter, kept for consistency with the abstract base class.
-
-        Returns
-        -------
-        None
 
         """
-        self.model.optimize()
+        self.model.optimize(**kwargs)
 
     def get_objective_value(self) -> float:
         """Return the objective value from the solved Gurobi model.

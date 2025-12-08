@@ -32,9 +32,13 @@ gurobi = [
 ortools = [
     "ortools>=9.11.4210",
 ]
+hexaly = [
+    "hexaly>=14.0.20251203",
+]
 all = [
     "xplor[gurobi]",
     "xplor[ortools]",
+    "xplor[hexaly]",
 ]
 
 [build-system]
@@ -51,6 +55,7 @@ dev = [
     "ipykernel>=7.1.0",
     "ty>=0.0.1a30",
     "prek>=0.2.19",
+    "pytest-cov>=7.0.0",
 ]
 docs = [
     "great-docs",
@@ -66,9 +71,14 @@ default-groups = "all"
 [[tool.uv.index]]
 url = "https://pypi.python.org/simple"
 
+[[tool.uv.index]]
+url = "https://pip.hexaly.com"
+name = "hexaly"
+explicit=true
+
 [tool.uv.sources]
 great-docs = { git = "https://github.com/rich-iannone/great-docs.git" }
-
+hexaly = { index = "hexaly" }
 
 [tool.ruff]
 line-length = 100

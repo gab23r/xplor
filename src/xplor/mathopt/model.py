@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import polars as pl
 from ortools.math_opt.python import mathopt, parameters, result
 
 from xplor.model import XplorModel
 from xplor.types import VarType, cast_to_dtypes
+
+if TYPE_CHECKING:
+    from xplor.obj_expr import ExpressionRepr
 
 
 class XplorMathOpt(XplorModel):
@@ -95,7 +100,7 @@ class XplorMathOpt(XplorModel):
 
         return self.vars[name]
 
-    def _add_constrs(self, df: pl.DataFrame, name: str, expr_str: str) -> pl.Series:
+    def _add_constrs(self, df: pl.DataFrame, name: str, expr_repr: ExpressionRepr) -> pl.Series:
         """Return a series of MathOpt linear constraints.
 
         This method is called by `XplorModel.add_constrs` after the expression
@@ -107,8 +112,8 @@ class XplorMathOpt(XplorModel):
             A DataFrame containing the necessary components for the constraint expression.
         name : str
             The base name for the constraint.
-        expr_str : str
-            The evaluated string representation of the constraint expression (e.g., "x_1 + x_2 <= 10").
+        expr_repr : ExpressionRepr
+            The evaluated string representation of the constraint expression.
 
         Returns
         -------
@@ -120,14 +125,15 @@ class XplorMathOpt(XplorModel):
         # https://github.com/gab23r/xplor/issues/1
 
         return pl.Series(
+            name,
             [
-                self.model.add_linear_constraint(eval(expr_str), name=f"{name}[{i}]")
-                for i, d in enumerate(df.rows())
+                self.model.add_linear_constraint(expr_repr.evaluate(row), name=f"{name}[{i}]")
+                for i, row in enumerate(df.rows())
             ],
             dtype=pl.Object,
         )
 
-    def optimize(self, solver_type: parameters.SolverType | None = None) -> None:
+    def optimize(self, solver_type: parameters.SolverType | None = None) -> None:  # ty:ignore[invalid-method-override]
         """Solve the MathOpt model.
 
         Uses `mathopt.solve()` to solve the model and stores the result internally.
@@ -137,10 +143,6 @@ class XplorMathOpt(XplorModel):
         solver_type : parameters.SolverType | None, default SolverType.GLOP
             The specific OR-Tools solver to use (e.g., GLOP, GSCIP).
             Defaults to MathOpt's native GLOP solver if none is provided.
-
-        Returns
-        -------
-        None
 
         Examples
         --------
