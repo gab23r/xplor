@@ -28,9 +28,11 @@ website:
     - text: Introduction
       href: index.qmd
     - section: Getting Started
-      href: usage.md
       contents:
       - usage.md
+    - section: Contributing
+      contents:
+      - contributing.qmd
     - section: Classes
       contents:
       - reference/XplorGurobi.qmd
