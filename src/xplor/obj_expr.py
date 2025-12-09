@@ -4,10 +4,11 @@ from dataclasses import dataclass
 from typing import Any
 
 import polars as pl
+import polars._plr as plr
 
 from xplor._utils import map_rows, series_to_df
 
-OPERATOR_MAP = {
+OPERATOR_MAP: dict[str, str] = {
     "__add__": "+",
     "__radd__": "+",
     "__sub__": "-",
@@ -45,7 +46,7 @@ class ObjExprNode:
     """Represents a single operation (operator) and its value (operand)."""
 
     operator: str  #  '__add__', '__rtruediv__'
-    operand: Any  # 1, 'a', or ObjExpr('b')
+    operand: pl.Expr | float  # 1, or ObjExpr('b')
 
 
 class ObjExpr(pl.Expr):
@@ -73,17 +74,17 @@ class ObjExpr(pl.Expr):
         return repr(self)
 
     def __repr__(self) -> str:
-        return self.process_expression()[0]
+        return self.parse()[0]
 
     def __str__(self) -> str:
-        expr_repr, exprs = self.process_expression()
+        expr_repr, exprs = self.parse()
         return self._get_str(expr_repr, exprs)
 
     @property
-    def _pyexpr(self):  # type: ignore # noqa: ANN202
+    def _pyexpr(self) -> plr.PyExpr:
         if not self._nodes:
             return self._expr._pyexpr
-        expr_repr, exprs = self.process_expression()
+        expr_repr, exprs = self.parse()
         if self._nodes[-1].operator in ("__eq__", "__ge__", "__le__"):
             msg = (
                 "Temporary constraints are not valid expression.\n"
@@ -96,67 +97,100 @@ class ObjExpr(pl.Expr):
             return_dtype=pl.Object,
         )._pyexpr
 
-    def _append_node(self, operator: str, operand: Any) -> ObjExpr:
+    def _append_node(self, operator: str, operand: pl.Expr | float) -> ObjExpr:
         """Append a node and return the current instance for chaining."""
         self._nodes.append(ObjExprNode(operator, operand))
         return self
 
-    def __add__(self, other: Any) -> ObjExpr:
+    def __add__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
         return self._append_node("__add__", other)
 
-    def __sub__(self, other: Any) -> ObjExpr:
+    def __sub__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
         return self._append_node("__sub__", other)
 
-    def __rsub__(self, other: Any) -> ObjExpr:
+    def __rsub__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
         return self._append_node("__rsub__", other)
 
-    def __radd__(self, other: Any) -> ObjExpr:
+    def __radd__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
         return self._append_node("__radd__", other)
 
-    def __truediv__(self, other: Any) -> ObjExpr:
+    def __truediv__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
         return self._append_node("__truediv__", other)
 
-    def __rtruediv__(self, other: Any) -> ObjExpr:
+    def __rtruediv__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
         return self._append_node("__rtruediv__", other)
 
-    def __mul__(self, other: Any) -> ObjExpr:
+    def __mul__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
         return self._append_node("__mul__", other)
 
-    def __rmul__(self, other: Any) -> ObjExpr:
+    def __rmul__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
         return self._append_node("__rmul__", other)
 
-    def __eq__(self, other: object) -> ObjExpr:  # type: ignore[override]
+    def __eq__(self, other: pl.Expr | float) -> ObjExpr:  # type: ignore[override]
         return self._append_node("__eq__", other)
 
-    def __le__(self, other: object) -> ObjExpr:
+    def __le__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
         return self._append_node("__le__", other)
 
-    def __ge__(self, other: object) -> ObjExpr:
+    def __ge__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
         return self._append_node("__ge__", other)
 
-    def process_expression(self) -> tuple[ExpressionRepr, list[pl.Expr]]:
+    def fill_null(self, value: Any | pl.Expr | None = None) -> ObjExpr:  # type: ignore
+        """fill_null implementation for object.
+
+        See: https://github.com/pola-rs/polars/issues/25679
+        """
+        if isinstance(value, pl.Expr):
+            return ObjExpr(pl.Expr.fill_null(self, value))
+        obj_value = pl.Expr._from_pyexpr(
+            plr.lit(
+                pl.Series("literal", [value], dtype=pl.Object)._s, allow_object=True, is_scalar=True
+            )
+        )
+        return ObjExpr(self.fill_null(obj_value))
+
+    def parse(self, exprs: list[pl.Expr] | None = None) -> tuple[ExpressionRepr, list[pl.Expr]]:
         """Transform a composite object expression into a list of Polars sub-expressions
         and an equivalent lambda function, using integer indexing for all inputs.
         """
-        exprs: list[pl.Expr] = [self._expr]
-        expr_repr = "row[0]"
-
+        if exprs is None:
+            exprs: list[pl.Expr] = [self._expr]
+            expr_repr = "row[0]"
+        else:
+            expr_repr = self._get_expr_repr(exprs, self._expr)
         for node in self._nodes:
             if isinstance(node.operand, pl.Expr):
-                exprs.append(node.operand)
-                operand_str = f"row[{len(exprs) - 1}]"
+                # Check if this is a column expression that has already been added to `exprs`
+                operand_str = self._get_expr_repr(exprs, node.operand)
             else:
                 operand_str = node.operand
 
             # Sequential building with parentheses to maintain precedence based on chain order
             if node.operator.startswith("__r"):
-                expr_repr = f"({operand_str} {OPERATOR_MAP[node.operator]} {expr_repr})"
+                expr_repr: str = f"({operand_str} {OPERATOR_MAP[node.operator]} {expr_repr})"
             else:
-                expr_repr = f"({expr_repr} {OPERATOR_MAP[node.operator]} {operand_str})"
+                expr_repr: str = f"({expr_repr} {OPERATOR_MAP[node.operator]} {operand_str})"
         # remove full outer parenthesis
         if self._nodes:
             expr_repr = expr_repr[1:-1]
         return ExpressionRepr(expr_repr), exprs
+
+    def _get_expr_repr(self, exprs: list[pl.Expr], expr: pl.Expr) -> str:
+        """Get the index of an expr in the list of expressions.
+
+        If the expression is not present, it is inserted at the end of the list.
+        """
+        expr_index = next(
+            (
+                i
+                for i, other_expr in enumerate(exprs)
+                if expr.meta.undo_aliases().meta.eq(other_expr.meta.undo_aliases())
+            ),
+            len(exprs),
+        )
+        if expr_index == len(exprs):
+            exprs.append(expr)
+        return f"row[{expr_index}]"
 
     def _get_str(self, expr_repr: str, exprs: list[pl.Expr]) -> str:
         """Return the representation of the expression."""

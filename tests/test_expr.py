@@ -74,10 +74,10 @@ def test_operator_overloading_appends_node(
 
 
 def test_process_expression_simple_arithmetic(obj_expr: ObjExpr):
-    """Tests process_expression for simple operations with literal operand."""
+    """Tests parse for simple operations with literal operand."""
     obj_expr_2 = (obj_expr + 10) * 2
 
-    expr_repr, exprs = obj_expr_2.process_expression()
+    expr_repr, exprs = obj_expr_2.parse()
 
     # Check ExpressionRepr structure
     assert isinstance(expr_repr, ExpressionRepr)
@@ -90,14 +90,14 @@ def test_process_expression_simple_arithmetic(obj_expr: ObjExpr):
     assert exprs[0].meta.root_names() == ["a"]
 
 
-def test_process_expression_with_expr_operand(obj_expr: ObjExpr):
-    """Tests process_expression for operations with another pl.Expr operand."""
-    obj_expr_2 = pl.col("b") + obj_expr
+def test_process_expression_with_expr_operand():
+    """Tests parse for operations with another pl.Expr operand."""
+    obj_expr_2 = pl.col("b") + ObjExpr(pl.col("a")) + ObjExpr(pl.col("a"))
 
-    expr_repr, exprs = obj_expr_2.process_expression()
+    expr_repr, exprs = obj_expr_2.parse()
 
     # Check ExpressionRepr structure (operand is now row[1])
-    assert str(expr_repr) == "row[1] + row[0]"
+    assert str(expr_repr) == "(row[1] + row[0]) + row[0]"
 
     # Check that both expressions are in the list
     assert len(exprs) == 2
@@ -140,6 +140,14 @@ def test_str() -> None:
     assert str((xplor.var("x") + 1 + pl.col("ub")).sum()) == "((x + 1) + ub).sum()"
 
 
+def test_repr() -> None:
+    assert (
+        repr(xplor.var("x") + xplor.var("x").alias("b") + pl.col("x"))
+        == "(row[0] + row[0]) + row[0]"
+    )
+    assert repr(xplor.var("x") + pl.col("^x$")) == "row[0] + row[1]"
+
+
 def test_invalid_dataframe_constraint_raises_exception() -> None:
     # Define the specific error message you expect
     expected_message = "Temporary constraints are not valid expression."
@@ -154,3 +162,11 @@ def test_invalid_dataframe_constraint_raises_exception() -> None:
 def test_evaluate():
     expr_str = ExpressionRepr("row[0] * 2 + row[1]")
     assert expr_str.evaluate((3, 5)) == 11  # ty:ignore[invalid-argument-type]
+
+
+def test_multi_expression_parsing():
+    obj_expr = xplor.var.a + xplor.var.a + 2 + pl.col("b") + pl.col("a")
+    exprs = obj_expr.parse()[1]
+
+    obj_expr2 = 1 + pl.col("c") + xplor.var.a + xplor.var.b
+    assert obj_expr2.parse(exprs)[0] == "(row[2] + row[0]) + row[1]"

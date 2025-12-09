@@ -17,6 +17,14 @@ def parse_into_expr(value: float | str | pl.Expr | None) -> pl.Expr:
     raise Exception(msg)
 
 
+def format_indices(name: str, series: pl.Series) -> pl.Series:
+    if series.dtype.base_type() is pl.Struct:
+        names = pl.concat_str(series.struct.unnest(), separator=",")
+    else:
+        names = pl.row_index()
+    return series.to_frame().select(pl.format(f"{name}[{{}}]", names)).to_series()
+
+
 def map_rows(df: pl.DataFrame, f: Callable[[tuple], Any]) -> pl.Series:
     """Apply a custom/user-defined function (UDF) over the rows of the DataFrame.
 

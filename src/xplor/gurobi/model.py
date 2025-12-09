@@ -80,9 +80,9 @@ class XplorGurobi(XplorModel):
             self.model.addMVar(
                 df.height,
                 vtype=getattr(gp.GRB, vtype),
-                lb=df["lb"].to_numpy(),
-                ub=df["ub"].to_numpy(),
-                obj=df["obj"].to_numpy(),
+                lb=df["lb"].to_numpy() if df["lb"].dtype != pl.Null else None,
+                ub=df["ub"].to_numpy() if df["ub"].dtype != pl.Null else None,
+                obj=df["obj"].to_numpy() if df["obj"].dtype != pl.Null else None,
                 name=df["name"].to_list(),
             ).tolist(),
             dtype=pl.Object(),
@@ -90,7 +90,9 @@ class XplorGurobi(XplorModel):
         self.model.update()
         return self.vars[name]
 
-    def _add_constrs(self, df: pl.DataFrame, name: str, expr_repr: ExpressionRepr) -> pl.Series:
+    def _add_constrs(
+        self, df: pl.DataFrame, expr_repr: ExpressionRepr, names: pl.Series
+    ) -> pl.Series:
         """Return a series of gurobi linear constraints.
 
         This method iterates over the rows of the processed DataFrame to add constraints
@@ -101,10 +103,10 @@ class XplorGurobi(XplorModel):
         ----------
         df : pl.DataFrame
             A DataFrame containing the necessary components for the constraint expression.
-        name : str
-            The base name for the constraint.
         expr_repr : ExpressionRepr
             The evaluated string representation of the constraint expression.
+        names : pl.Series
+            A series containing the constaints name.
 
         Returns
         -------
@@ -116,7 +118,7 @@ class XplorGurobi(XplorModel):
         # https://github.com/gab23r/xplor/issues/1
 
         if df.height == 0:
-            return pl.Series(name, dtype=pl.Object)
+            return pl.Series(dtype=pl.Object)
 
         # row = df.row(0)
         # lhs_constr_type = str(type(row[0]))
@@ -131,8 +133,8 @@ class XplorGurobi(XplorModel):
         _add_constr = self.model.addLConstr
         series = pl.Series(
             [
-                _add_constr(expr_repr.evaluate(row), name=f"{name}[{i}]")
-                for i, row in enumerate(df.rows())
+                _add_constr(expr_repr.evaluate(row), name=name)
+                for row, name in zip(df.rows(), names, strict=True)
             ],
             dtype=pl.Object,
         )

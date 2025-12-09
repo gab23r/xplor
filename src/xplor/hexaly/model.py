@@ -106,7 +106,9 @@ class XplorHexaly(XplorModel):
 
         return self.vars[name]
 
-    def _add_constrs(self, df: pl.DataFrame, name: str, expr_repr: ExpressionRepr) -> pl.Series:
+    def _add_constrs(
+        self, df: pl.DataFrame, expr_repr: ExpressionRepr, names: pl.Series
+    ) -> pl.Series:
         """Return a series of Hexaly constraints.
 
         This method is called by `XplorModel.add_constrs` after the expression
@@ -116,10 +118,10 @@ class XplorHexaly(XplorModel):
         ----------
         df : pl.DataFrame
             A DataFrame containing the necessary components for the constraint expression.
-        name : str
-            The base name for the constraint.
         expr_repr : ExpressionRepr
             The evaluated string representation of the constraint expression.
+        names : pl.Series
+            A series containing the constaints name.
 
         Returns
         -------
@@ -127,10 +129,11 @@ class XplorHexaly(XplorModel):
             A Polars Object Series containing the namd of Hexaly constraint objects.
 
         """
-        [self.model.add_constraint(expr_repr.evaluate(row)) for row in df.rows()]
+        for row in df.rows():
+            self.model.add_constraint(expr_repr.evaluate(row))
+
         return pl.Series(
-            name,
-            [f"{name}[{i}]" for i in range(df.height)],
+            names,
             dtype=pl.Object,
         )
 
