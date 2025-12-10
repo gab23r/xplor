@@ -6,7 +6,7 @@ from typing import Any
 import polars as pl
 import polars._plr as plr
 
-from xplor._utils import map_rows, series_to_df
+from xplor._utils import expr_ends_with_alias, map_rows, series_to_df
 
 OPERATOR_MAP: dict[str, str] = {
     "__add__": "+",
@@ -60,7 +60,7 @@ class ObjExpr(pl.Expr):
 
     Attributes:
         _expr (pl.Expr): The root expression.
-        _expr_name (str | None): The root expression name.
+        _name (str | None): The root expression name.
         _nodes (list[ObjExprNode]): The internal list representing the operation AST.
 
     """
@@ -80,22 +80,20 @@ class ObjExpr(pl.Expr):
         expr_repr, exprs = self.parse()
         return self._get_str(expr_repr, exprs)
 
-    @property
-    def _pyexpr(self) -> plr.PyExpr:
+    def _to_expr(self) -> pl.Expr:
         if not self._nodes:
-            return self._expr._pyexpr
+            return self._expr
         expr_repr, exprs = self.parse()
-        if self._nodes[-1].operator in ("__eq__", "__ge__", "__le__"):
-            msg = (
-                "Temporary constraints are not valid expression.\n"
-                "Please wrap your constraint with `xplor.Model.constr()`"
-            )
-            raise Exception(msg)
+
         return pl.map_batches(
             exprs,
             lambda s: map_rows(series_to_df(s, rename_series=True), expr_repr.evaluate),
             return_dtype=pl.Object,
-        )._pyexpr
+        )
+
+    @property
+    def _pyexpr(self) -> plr.PyExpr:
+        return self._to_expr()._pyexpr
 
     def _append_node(self, operator: str, operand: pl.Expr | float) -> ObjExpr:
         """Append a node and return the current instance for chaining."""
@@ -134,6 +132,12 @@ class ObjExpr(pl.Expr):
 
     def __ge__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
         return self._append_node("__ge__", other)
+
+    def alias(self, name: str) -> ObjExpr:
+        """Rename the object expression."""
+        self._name = name
+        self._expr = self._expr.alias(name)
+        return self
 
     def fill_null(self, value: Any | pl.Expr | None = None) -> ObjExpr:  # type: ignore
         """fill_null implementation for object.
@@ -199,7 +203,7 @@ class ObjExpr(pl.Expr):
         for i, expr in enumerate(exprs):
             if i == 0 and self._name is not None:
                 replacement = self._name
-            elif expr.meta.is_column() or isinstance(expr, ObjExpr):
+            elif expr.meta.is_column() or expr_ends_with_alias(expr):
                 replacement = expr.meta.output_name()
             else:
                 replacement = str(expr)

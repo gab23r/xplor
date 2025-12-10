@@ -1,8 +1,42 @@
 from __future__ import annotations
 
 import polars as pl
+import polars._plr as plr
 
 from xplor.obj_expr import ObjExpr
+
+# ConstrExpr: TypeAlias = ObjExpr
+
+
+class ConstrExpr(ObjExpr):
+    """Represents a specific type of ObjExpr used for constraints.
+    Inherits all behavior from ObjExpr.
+    """
+
+    @classmethod
+    def from_obj_expr(cls, obj_expr: ObjExpr) -> ConstrExpr:
+        """Create a new ConstrExpr instance from an existing ObjExpr instance
+        by copying its core state.
+        """
+        # Create a new instance of ConstrExpr (cls) using the parent's core attributes
+        # Note: We are creating a NEW object, not modifying the old one.
+        new_constr = cls(expr=obj_expr._expr, name=obj_expr._name)
+
+        new_constr._nodes = list(obj_expr._nodes)
+
+        return new_constr
+
+    @property
+    def _pyexpr(self) -> plr.PyExpr:
+        msg = (
+            "Temporary constraints are not valid expression.\n"
+            "Please wrap your constraint with `xplor.Model.add_constrs()`"
+        )
+        raise Exception(msg)
+
+    def alias(self, name: str) -> ConstrExpr:
+        """Rename a Constraint expressiom."""
+        return ConstrExpr.from_obj_expr(super().alias(name))
 
 
 class VarExpr(ObjExpr):
@@ -83,6 +117,15 @@ class VarExpr(ObjExpr):
             self.map_elements(lambda d: gp.abs_(d), return_dtype=pl.Object),
             name=f"{self}.abs()",
         )
+
+    def __eq__(self, other: pl.Expr | float) -> ConstrExpr:  # type: ignore[override]
+        return ConstrExpr.from_obj_expr(self._append_node("__eq__", other))
+
+    def __le__(self, other: pl.Expr | float) -> ConstrExpr:  # ty:ignore[invalid-method-override]
+        return ConstrExpr.from_obj_expr(self._append_node("__le__", other))
+
+    def __ge__(self, other: pl.Expr | float) -> ConstrExpr:  # ty:ignore[invalid-method-override]
+        return ConstrExpr.from_obj_expr(self._append_node("__ge__", other))
 
 
 class _ProxyObjExpr:

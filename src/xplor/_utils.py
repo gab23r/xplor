@@ -4,6 +4,10 @@ from typing import Any
 import polars as pl
 
 
+def expr_ends_with_alias(expr: pl.Expr) -> bool:
+    return expr.meta.pop()[0].meta.output_name() != expr.meta.output_name()
+
+
 def parse_into_expr(value: float | str | pl.Expr | None) -> pl.Expr:
     if isinstance(value, float | int):
         return pl.lit(value, dtype=pl.Float64)

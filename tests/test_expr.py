@@ -6,6 +6,7 @@ import pytest
 
 import xplor
 from xplor.obj_expr import ExpressionRepr, ObjExpr, ObjExprNode
+from xplor.var_expr import VarExpr
 
 
 # Create a base ObjExpr instance
@@ -114,15 +115,17 @@ def test_pyexpr_for_simple_expr_delegation(obj_expr: ObjExpr):
     assert obj_expr._pyexpr == obj_expr._expr._pyexpr
 
 
-def test_pyexpr_raises_exception_on_constraint_node(obj_expr: ObjExpr):
+def test_pyexpr_raises_exception_on_constraint_node():
     """Tests that a constraint operator (==, >=, <=) raises an exception in _pyexpr."""
+
+    obj_expr = VarExpr(pl.col("a"))
     obj_expr_eq = obj_expr == 10
     obj_expr_ge = obj_expr >= 10
     obj_expr_le = obj_expr <= 10
 
     expected_msg = re.escape(
         "Temporary constraints are not valid expression.\n"
-        "Please wrap your constraint with `xplor.Model.constr()`"
+        "Please wrap your constraint with `xplor.Model.add_constrs()`"
     )
     with pytest.raises(Exception, match=expected_msg):
         _ = obj_expr_eq._pyexpr
@@ -137,6 +140,7 @@ def test_pyexpr_raises_exception_on_constraint_node(obj_expr: ObjExpr):
 def test_str() -> None:
     assert str((xplor.var.x + pl.col("ub")) == 1) == "(x + ub) == 1"
     assert str(xplor.var.x.sum() + pl.col("ub").first()) == "x.sum() + ub.first()"
+    assert str(xplor.var.x.sum().alias("a") + pl.col("ub").alias("b")) == "a + b"
     assert str((xplor.var("x") + 1 + pl.col("ub")).sum()) == "((x + 1) + ub).sum()"
 
 

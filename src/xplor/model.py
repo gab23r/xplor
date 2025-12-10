@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
-from xplor._utils import format_indices, parse_into_expr, series_to_df
+from xplor._utils import parse_into_expr, series_to_df
 from xplor.types import VarType
 
 if TYPE_CHECKING:
@@ -14,7 +14,8 @@ if TYPE_CHECKING:
     import gurobipy as gp
     from ortools.math_opt.python import mathopt
 
-    from xplor.obj_expr import ExpressionRepr, ObjExpr
+    from xplor.obj_expr import ExpressionRepr
+    from xplor.var_expr import ConstrExpr
 
 
 class XplorModel(ABC):
@@ -129,7 +130,10 @@ class XplorModel(ABC):
         ).alias(name)
 
     def add_constrs(
-        self, expr: ObjExpr, name: str | None = None, indices: pl.Expr | None = None
+        self,
+        *constr_exprs: ConstrExpr,
+        indices: pl.Expr | None = None,
+        **named_constr_exprs: ConstrExpr,
     ) -> pl.Expr:
         r"""Define and return a Constr expression for model constraints.
 
@@ -143,15 +147,14 @@ class XplorModel(ABC):
 
         Parameters
         ----------
-        expr : ObjExpr
-            The constraint expression (e.g., a relational expression like
+        constr_exprs : ConstrExpr
+            The constraints expression (e.g., a relational expression like
             `xplor.var("x").sum() <= 10`).
-        name : str | None, default None
-            The base name for the constraints. If None, the name is deduced
-            from the symbolic expression string (e.g., "x.sum() <= 10").
         indices: pl.Expr | None, default None
             Keys (column names) that uniquely identify each constraint instance.
             Used to format the internal variable names (e.g., 'constr[1,2]').
+        named_constr_exprs : ConstrExpr
+            Other constraints expression
 
         Returns
         -------
@@ -176,16 +179,19 @@ class XplorModel(ABC):
         ```
 
         """
-        expr_repr, exprs = expr.parse()
-        name = name or expr._get_str(expr_repr, exprs)
-
+        exprs: list[pl.Expr] = []
+        constrs_repr_d: dict[str, ExpressionRepr] = {}
+        for expr in constr_exprs:
+            expr_repr, exprs = expr.parse(exprs)
+            constrs_repr_d[expr._get_str(expr_repr, exprs)] = expr_repr
+        constrs_repr_d |= {name: expr.parse(exprs)[0] for name, expr in named_constr_exprs.items()}
         indices = pl.lit(None, dtype=pl.Null) if indices is None else pl.struct(indices)
 
         return pl.map_batches(
             [*exprs, indices],
-            lambda d: self._boardcast_and_add_constrs(d, name, expr_repr),
-            return_dtype=pl.Object,
-        ).alias(name)
+            lambda series: self._boardcast_and_add_constrs(series, constrs_repr_d),
+            return_dtype=pl.Struct(dict.fromkeys(constrs_repr_d, pl.String)),
+        ).struct.unnest()
 
     @abstractmethod
     def optimize(self, **kwargs: Any) -> Any:
@@ -238,8 +244,8 @@ class XplorModel(ABC):
 
     @abstractmethod
     def _add_constrs(
-        self, df: pl.DataFrame, expr_repr: ExpressionRepr, names: pl.Series
-    ) -> pl.Series:
+        self, df: pl.DataFrame, /, indices: pl.Series, **constrs_repr: ExpressionRepr
+    ) -> None:
         """Return a series of constraints.
 
         This method iterates over the rows of the processed DataFrame to add constraints
@@ -249,15 +255,10 @@ class XplorModel(ABC):
         ----------
         df : pl.DataFrame
             A DataFrame containing the necessary components for the constraint expression.
-        expr_repr : ExpressionRepr
+        indices: pl.Series
+             A Series containing the indices for the constraint names.
+        constrs_repr : ExpressionRepr
             The evaluated string representation of the constraint expression.
-        names : pl.Series
-            A series containing the constaints name.
-
-        Returns
-        -------
-        pl.Series
-            A Polars Object Series containing the created Gurobi constraint objects.
 
         """
 
@@ -274,20 +275,37 @@ class XplorModel(ABC):
         """
 
     def _boardcast_and_add_constrs(
-        self, series: Sequence[pl.Series], name: str, expr_repr: ExpressionRepr
+        self, series: Sequence[pl.Series], constrs_repr_d: dict[str, ExpressionRepr]
     ) -> pl.Series:
+        """Broadcast all series and call _add_constrs.
+
+        The last series is a struct conaining the indices used for the constraint name.
+        """
         # Convert series list back to a DataFrame
         df = series_to_df(series, rename_series=True)
 
-        # Select all columns EXCEPT the last one (which is the index)
-        data_df = df.select(~pl.selectors.last())
-
         # Extract the last column (the index) as a Series
-        index_series = df.select(pl.selectors.last()).to_series()
+        indices = df[:, -1]
+        if indices.dtype.base_type() is pl.Struct:
+            indices = pl.select(pl.concat_str(df[:, -1].struct.unnest(), separator=",")).to_series()
+        else:
+            indices = df.select(pl.row_index().cast(pl.String)).to_series()
 
-        # Apply the constraints logic
-        return self._add_constrs(
-            data_df,
-            names=format_indices(name, index_series),
-            expr_repr=expr_repr,
+        self._add_constrs(
+            df[:, 0:-1],
+            **constrs_repr_d,
+            indices=indices,
+        )
+        return (
+            indices.to_frame("indices")
+            # .select(**{name: pl.format(f"{name}[{{}}]", pl.col(indices)) for name in constrs_repr_d})
+            .select(
+                pl.struct(
+                    [
+                        pl.format(f"{name}[{{}}]", pl.col("indices")).alias(name)
+                        for name in constrs_repr_d
+                    ]
+                )
+            )
+            .to_series()
         )

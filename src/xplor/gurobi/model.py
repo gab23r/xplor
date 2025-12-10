@@ -91,8 +91,12 @@ class XplorGurobi(XplorModel):
         return self.vars[name]
 
     def _add_constrs(
-        self, df: pl.DataFrame, expr_repr: ExpressionRepr, names: pl.Series
-    ) -> pl.Series:
+        self,
+        df: pl.DataFrame,
+        /,
+        indices: pl.Series,
+        **constrs_repr: ExpressionRepr,
+    ) -> None:
         """Return a series of gurobi linear constraints.
 
         This method iterates over the rows of the processed DataFrame to add constraints
@@ -103,22 +107,14 @@ class XplorGurobi(XplorModel):
         ----------
         df : pl.DataFrame
             A DataFrame containing the necessary components for the constraint expression.
-        expr_repr : ExpressionRepr
+        indices: pl.Series
+             A Series containing the indices for the constraint names.
+        constrs_repr : ExpressionRepr
             The evaluated string representation of the constraint expression.
-        names : pl.Series
-            A series containing the constaints name.
-
-        Returns
-        -------
-        pl.Series
-            A Polars Object Series containing the created Gurobi constraint objects.
 
         """
         # TODO: manage non linear constraint
         # https://github.com/gab23r/xplor/issues/1
-
-        if df.height == 0:
-            return pl.Series(dtype=pl.Object)
 
         # row = df.row(0)
         # lhs_constr_type = str(type(row[0]))
@@ -131,15 +127,10 @@ class XplorGurobi(XplorModel):
         #     _add_constr = self.model.addLConstr
 
         _add_constr = self.model.addLConstr
-        series = pl.Series(
-            [
-                _add_constr(expr_repr.evaluate(row), name=name)
-                for row, name in zip(df.rows(), names, strict=True)
-            ],
-            dtype=pl.Object,
-        )
+        for row, index in zip(df.rows(), indices, strict=True):
+            for name, constr_repr in constrs_repr.items():
+                _add_constr(constr_repr.evaluate(row), name=f"{name}[{index}]")
         self.model.update()
-        return series
 
     def optimize(self, **kwargs: Any) -> None:
         """Solve the Gurobi model.
