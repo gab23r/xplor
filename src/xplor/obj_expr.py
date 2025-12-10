@@ -87,7 +87,7 @@ class ObjExpr(pl.Expr):
 
         return pl.map_batches(
             exprs,
-            lambda s: map_rows(series_to_df(s, rename_series=True), expr_repr.evaluate),
+            lambda s: map_rows(series_to_df(s, rename=True), expr_repr.evaluate),
             return_dtype=pl.Object,
         )
 

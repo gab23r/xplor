@@ -38,14 +38,14 @@ def map_rows(df: pl.DataFrame, f: Callable[[tuple], Any]) -> pl.Series:
     return pl.Series([f(r) for r in df.rows()], dtype=pl.Object)
 
 
-def series_to_df(series: Sequence[pl.Series], *, rename_series: bool = False) -> pl.DataFrame:
+def series_to_df(series: Sequence[pl.Series], *, rename: bool = False) -> pl.DataFrame:
     """Broadcast a list of series to the same height and return a DataFrame.
 
     Parameters
     ----------
     series : Sequence[pl.Series]
         Series to broadcast.
-    rename_series : bool, optional
+    rename : bool, optional
         Series are renamed to avoid duplicated names, by default False
 
     """
@@ -56,7 +56,7 @@ def series_to_df(series: Sequence[pl.Series], *, rename_series: bool = False) ->
                 pl.repeat(s[0], max_length, eager=True, dtype=s.dtype)
                 if s.len() != max_length
                 else s
-            ).alias(str(i) if rename_series else s.name)
+            ).alias(str(i) if rename else s.name)
             for i, s in enumerate(series)
         ]
     )

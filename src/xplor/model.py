@@ -162,20 +162,27 @@ class XplorModel(ABC):
             A Polars expression (`Constr`) that, when executed, adds constraints
             to the model and returns them as an `Object` Series in the DataFrame.
 
+        .. warning::
+            All constraints provided within a single call to `add_constrs` should
+            have the same granularity (i.e., correspond to the same set of indices).
+            If constraints with different granularities are provided, Polars'
+            broadcasting mechanism might lead to constraints being added multiple
+            times to the optimization model.
+
         Examples
         --------
         Assuming `df` has been created and contains the variable Series `df["x"]`.
 
         ```python
-        # Row-wise constrain:
         >>> df.select(
-        ...     xmodel.add_constrs(xplor.var("x") <= pl.col("capacity"), name="max_per_item")
+        ...     xmodel.add_constrs(
+                    max_per_item = xplor.var("x") <= pl.col("capacity"),
+                    min_per_item = xplor.var("x") >= pl.col("min_threshold"),
+                    indices=["product"]
+                ),
+        ...     xmodel.add_constrs(total_min_prod = xplor.var("x").sum() >= 100.0)
         ... )
 
-        # Aggregated constraint:
-        >>> df.select(
-        ...     xmodel.add_constrs(xplor.var("x").sum() >= 100.0, name="min_production")
-        ... )
         ```
 
         """
@@ -282,7 +289,7 @@ class XplorModel(ABC):
         The last series is a struct conaining the indices used for the constraint name.
         """
         # Convert series list back to a DataFrame
-        df = series_to_df(series, rename_series=True)
+        df = series_to_df(series, rename=True)
 
         # Extract the last column (the index) as a Series
         indices = df[:, -1]
