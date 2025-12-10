@@ -140,18 +140,16 @@ class ObjExpr(pl.Expr):
         return self
 
     def fill_null(self, value: Any | pl.Expr | None = None) -> ObjExpr:  # type: ignore
-        """fill_null implementation for object.
-
-        See: https://github.com/pola-rs/polars/issues/25679
-        """
+        """fill_null implementation for object."""
         if isinstance(value, pl.Expr):
             return ObjExpr(pl.Expr.fill_null(self, value))
-        obj_value = pl.Expr._from_pyexpr(
-            plr.lit(
-                pl.Series("literal", [value], dtype=pl.Object)._s, allow_object=True, is_scalar=True
-            )
-        )
-        return ObjExpr(self.fill_null(obj_value))
+
+        return ObjExpr(self.fill_null(pl.lit(value, dtype=pl.Object)))
+
+    @property
+    def name(self) -> ObjExprNameNameSpace:
+        """Create an object namespace of all expressions that modify expression names."""
+        return ObjExprNameNameSpace(self)
 
     def parse(self, exprs: list[pl.Expr] | None = None) -> tuple[ExpressionRepr, list[pl.Expr]]:
         """Transform a composite object expression into a list of Polars sub-expressions
@@ -217,3 +215,20 @@ class ObjExpr(pl.Expr):
             )
 
         return expr_str
+
+
+class ObjExprNameNameSpace:
+    """Namespace for expressions that operate on expression names."""
+
+    _accessor = "name"
+
+    def __init__(self, expr: ObjExpr) -> None:
+        self._pyexpr = expr._pyexpr
+
+    def prefix(self, prefix: str) -> ObjExpr:
+        """Add a prefix to the root column name of the object expression."""
+        return ObjExpr(pl.Expr._from_pyexpr(self._pyexpr.name_prefix(prefix)))
+
+    def suffix(self, suffix: str) -> ObjExpr:
+        """Add a suffix to the root column name of the object expression."""
+        return ObjExpr(pl.Expr._from_pyexpr(self._pyexpr.name_suffix(suffix)))

@@ -50,3 +50,17 @@ def test_linear_optimization_problem(
     result = xmodel.get_variable_values("x")
     assert result.dtype == dtype
     assert result.to_list() == pytest.approx(var_value, rel=1e-4)
+
+
+def test_add_constrs():
+    xmodel = XplorGurobi()
+
+    df = pl.DataFrame(
+        {"id": [0, 1], "lb": [-1.0, 0.0], "ub": [1.5, 1.0], "obj": [-1, -2]}
+    ).with_columns(xmodel.add_vars("x"), xmodel.add_vars("y"))
+    assert df.select(
+        xmodel.add_constrs(xplor.var("x", "y").sum().name.suffix(".sum()") == 1)
+    ).to_dict(as_series=False) == {"x.sum()": ["x.sum()[0]"], "y.sum()": ["y.sum()[0]"]}
+    assert df.select(xmodel.add_constrs((xplor.var("x").sum().name.suffix(".sum()")) == 1)).to_dict(
+        as_series=False
+    ) == {"x.sum() == 1": ["x.sum() == 1[0]"]}

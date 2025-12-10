@@ -3,8 +3,8 @@
 import builtins
 import contextlib
 
+from xplor.exprs.var import _ProxyVarExpr
 from xplor.types import VarType
-from xplor.var_expr import _ProxyObjExpr
 
 with contextlib.suppress(builtins.BaseException):
     from xplor.gurobi import XplorGurobi
@@ -14,6 +14,6 @@ with contextlib.suppress(builtins.BaseException):
 
 with contextlib.suppress(builtins.BaseException):
     from xplor.hexaly import XplorHexaly
-var = _ProxyObjExpr()
+var = _ProxyVarExpr()
 
 __all__ = ["VarType", "XplorGurobi", "XplorHexaly", "XplorMathOpt", "var"]

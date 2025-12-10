@@ -11,7 +11,7 @@ from xplor.types import VarType, cast_to_dtypes
 if TYPE_CHECKING:
     from hexaly.modeler import HxExpression
 
-    from xplor.obj_expr import ExpressionRepr
+    from xplor.exprs.obj import ExpressionRepr
 
 
 class XplorHexaly(XplorModel):

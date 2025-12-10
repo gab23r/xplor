@@ -5,6 +5,8 @@ import polars as pl
 
 
 def expr_ends_with_alias(expr: pl.Expr) -> bool:
+    if expr.meta.has_multiple_outputs():
+        return False
     return expr.meta.pop()[0].meta.output_name() != expr.meta.output_name()
 
 

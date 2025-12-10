@@ -1,42 +1,9 @@
 from __future__ import annotations
 
 import polars as pl
-import polars._plr as plr
 
-from xplor.obj_expr import ObjExpr
-
-# ConstrExpr: TypeAlias = ObjExpr
-
-
-class ConstrExpr(ObjExpr):
-    """Represents a specific type of ObjExpr used for constraints.
-    Inherits all behavior from ObjExpr.
-    """
-
-    @classmethod
-    def from_obj_expr(cls, obj_expr: ObjExpr) -> ConstrExpr:
-        """Create a new ConstrExpr instance from an existing ObjExpr instance
-        by copying its core state.
-        """
-        # Create a new instance of ConstrExpr (cls) using the parent's core attributes
-        # Note: We are creating a NEW object, not modifying the old one.
-        new_constr = cls(expr=obj_expr._expr, name=obj_expr._name)
-
-        new_constr._nodes = list(obj_expr._nodes)
-
-        return new_constr
-
-    @property
-    def _pyexpr(self) -> plr.PyExpr:
-        msg = (
-            "Temporary constraints are not valid expression.\n"
-            "Please wrap your constraint with `xplor.Model.add_constrs()`"
-        )
-        raise Exception(msg)
-
-    def alias(self, name: str) -> ConstrExpr:
-        """Rename a Constraint expressiom."""
-        return ConstrExpr.from_obj_expr(super().alias(name))
+from xplor.exprs import ConstrExpr
+from xplor.exprs.obj import ObjExpr
 
 
 class VarExpr(ObjExpr):
@@ -57,7 +24,7 @@ class VarExpr(ObjExpr):
 
         Examples
         --------
-        >>> df.group_by('group').agg(xpl.var.sum())
+        >>> df.group_by('group').agg(xplor.var.sum())
 
         """
         name = str(self) if self.meta.is_column() else f"({self})"
@@ -81,7 +48,7 @@ class VarExpr(ObjExpr):
 
         Examples
         --------
-        >>> df.group_by('group').agg(xpl.var.any())
+        >>> df.group_by('group').agg(xplor.var.any())
 
         """
         import gurobipy as gp
@@ -108,7 +75,7 @@ class VarExpr(ObjExpr):
 
         Examples
         --------
-        >>> df.with_columns(xpl.var.abs())
+        >>> df.with_columns(xplor.var.abs())
 
         """
         import gurobipy as gp
@@ -117,6 +84,11 @@ class VarExpr(ObjExpr):
             self.map_elements(lambda d: gp.abs_(d), return_dtype=pl.Object),
             name=f"{self}.abs()",
         )
+
+    @property
+    def name(self) -> VarExprNameNameSpace:
+        """Create an object namespace of all var expressions that modify expression names."""
+        return VarExprNameNameSpace(self)
 
     def __eq__(self, other: pl.Expr | float) -> ConstrExpr:  # type: ignore[override]
         return ConstrExpr.from_obj_expr(self._append_node("__eq__", other))
@@ -128,7 +100,24 @@ class VarExpr(ObjExpr):
         return ConstrExpr.from_obj_expr(self._append_node("__ge__", other))
 
 
-class _ProxyObjExpr:
+class VarExprNameNameSpace:
+    """Namespace for var expressions that operate on expression names."""
+
+    _accessor = "name"
+
+    def __init__(self, expr: VarExpr) -> None:
+        self._pyexpr = expr._pyexpr
+
+    def prefix(self, prefix: str) -> VarExpr:
+        """Add a prefix to the root column name of the object expression."""
+        return VarExpr(pl.Expr._from_pyexpr(self._pyexpr.name_prefix(prefix)))
+
+    def suffix(self, suffix: str) -> VarExpr:
+        """Add a suffix to the root column name of the object expression."""
+        return VarExpr(pl.Expr._from_pyexpr(self._pyexpr.name_suffix(suffix)))
+
+
+class _ProxyVarExpr:
     """The entry point for creating custom expression objects (VarExpr) that represent
     variables or columns used within a composite Polars expression chain.
 

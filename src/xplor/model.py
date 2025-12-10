@@ -14,8 +14,8 @@ if TYPE_CHECKING:
     import gurobipy as gp
     from ortools.math_opt.python import mathopt
 
-    from xplor.obj_expr import ExpressionRepr
-    from xplor.var_expr import ConstrExpr
+    from xplor.exprs import ConstrExpr
+    from xplor.exprs.obj import ExpressionRepr
 
 
 class XplorModel(ABC):
@@ -188,17 +188,40 @@ class XplorModel(ABC):
         """
         exprs: list[pl.Expr] = []
         constrs_repr_d: dict[str, ExpressionRepr] = {}
+        has_multiple_outputs = False
         for expr in constr_exprs:
             expr_repr, exprs = expr.parse(exprs)
+            has_multiple_outputs = has_multiple_outputs or expr.meta.has_multiple_outputs()
             constrs_repr_d[expr._get_str(expr_repr, exprs)] = expr_repr
-        constrs_repr_d |= {name: expr.parse(exprs)[0] for name, expr in named_constr_exprs.items()}
-        indices = pl.lit(None, dtype=pl.Null) if indices is None else pl.struct(indices)
+        for name, expr in named_constr_exprs.items():
+            constrs_repr_d[name] = expr.parse(exprs)[0]
+            has_multiple_outputs = has_multiple_outputs or expr.meta.has_multiple_outputs()
+        if has_multiple_outputs and len(constrs_repr_d) > 1:
+            msg = (
+                "Cannot provide multiple constraints when one or more constraints might have "
+                "multiple outputs (e.g., `xplor.var('x', 'y').sum()`). "
+                "Please call `add_constrs` separately for each such constraint expression."
+            )
+            raise ValueError(msg)
 
-        return pl.map_batches(
+        indices = pl.lit(None, dtype=pl.Null) if indices is None else pl.struct(indices)
+        return_dtype = (
+            pl.String()
+            if has_multiple_outputs
+            else pl.Struct(dict.fromkeys(constrs_repr_d, pl.String))
+        )
+
+        mapped_constrs = pl.map_batches(
             [*exprs, indices],
-            lambda series: self._boardcast_and_add_constrs(series, constrs_repr_d),
-            return_dtype=pl.Struct(dict.fromkeys(constrs_repr_d, pl.String)),
-        ).struct.unnest()
+            lambda series: self._boardcast_and_add_constrs(
+                series, constrs_repr_d, has_multiple_outputs=has_multiple_outputs
+            ),
+            return_dtype=return_dtype,
+        )
+        if not has_multiple_outputs:  # in the other case, polars automatically unnest.
+            mapped_constrs = mapped_constrs.struct.unnest()
+
+        return mapped_constrs
 
     @abstractmethod
     def optimize(self, **kwargs: Any) -> Any:
@@ -282,7 +305,11 @@ class XplorModel(ABC):
         """
 
     def _boardcast_and_add_constrs(
-        self, series: Sequence[pl.Series], constrs_repr_d: dict[str, ExpressionRepr]
+        self,
+        series: Sequence[pl.Series],
+        constrs_repr_d: dict[str, ExpressionRepr],
+        *,
+        has_multiple_outputs: bool,
     ) -> pl.Series:
         """Broadcast all series and call _add_constrs.
 
@@ -290,7 +317,6 @@ class XplorModel(ABC):
         """
         # Convert series list back to a DataFrame
         df = series_to_df(series, rename=True)
-
         # Extract the last column (the index) as a Series
         indices = df[:, -1]
         if indices.dtype.base_type() is pl.Struct:
@@ -303,6 +329,13 @@ class XplorModel(ABC):
             **constrs_repr_d,
             indices=indices,
         )
+        if has_multiple_outputs:
+            name = series[0].name
+            return (
+                indices.to_frame("indices")
+                .select(pl.format(f"{name}[{{}}]", pl.col("indices")).alias(name))
+                .to_series()
+            )
         return (
             indices.to_frame("indices")
             # .select(**{name: pl.format(f"{name}[{{}}]", pl.col(indices)) for name in constrs_repr_d})

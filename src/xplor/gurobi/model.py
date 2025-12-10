@@ -9,7 +9,7 @@ from xplor.model import XplorModel
 from xplor.types import VarType, cast_to_dtypes
 
 if TYPE_CHECKING:
-    from xplor.obj_expr import ExpressionRepr
+    from xplor.exprs.obj import ExpressionRepr
 
 
 class XplorGurobi(XplorModel):
