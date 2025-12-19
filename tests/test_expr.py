@@ -95,7 +95,7 @@ def test_process_expression_with_expr_operand():
     """Tests parse for operations with another pl.Expr operand."""
     obj_expr_2 = pl.col("b") + ObjExpr(pl.col("a")) + ObjExpr(pl.col("a"))
 
-    expr_repr, exprs = obj_expr_2.parse()
+    expr_repr, exprs = obj_expr_2.parse()  # type: ignore
 
     # Check ExpressionRepr structure (operand is now row[1])
     assert str(expr_repr) == "(row[1] + row[0]) + row[0]"
@@ -144,6 +144,11 @@ def test_str() -> None:
     assert str(xplor.var.x.sum().alias("a") + pl.col("ub").alias("b")) == "a + b"
     assert str((xplor.var("x") + 1 + pl.col("ub")).sum()) == "((x + 1) + ub).sum()"
 
+    obj_expr = xplor.var.has_started == xplor.var.start + xplor.var.has_started.shift(1).alias(
+        "prev_has_started"
+    )
+    assert str(obj_expr) == "has_started == start + prev_has_started"
+
 
 def test_repr() -> None:
     assert (
@@ -163,4 +168,4 @@ def test_multi_expression_parsing():
     exprs = obj_expr.parse()[1]
 
     obj_expr2 = 1 + pl.col("c") + xplor.var.a + xplor.var.b
-    assert obj_expr2.parse(exprs)[0] == "(row[2] + row[0]) + row[1]"
+    assert obj_expr2.parse(exprs)[0] == "(row[2] + row[0]) + row[1]"  # type: ignore

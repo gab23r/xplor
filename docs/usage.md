@@ -101,18 +101,11 @@ df
 The `xmodel.add_constrs()` method captures the symbolic expression, executes it in the context of the DataFrame, and adds the resulting constraints to the underlying solver model.
 
 ```python
-df.select(
-    xmodel.add_constrs(xplor.var("labor_usage").sum() <= MAX_LABOR, name="maxlabor"),
-    xmodel.add_constrs((xplor.var("x") * pl.col("material_weight")).sum() <= MAX_WEIGHT) # name is deduce from the expression!
-)
-# shape: (1, 2)
-# ┌─────────────────────────────┬─────────────────────────────────┐
-# │ maxlabor                    ┆ (x * weight).sum() <= 1000.0    │
-# │ ---                         ┆ ---                             │
-# │ object                      ┆ object                          │
-# ╞═════════════════════════════╪═════════════════════════════════╡
-# │ <gurobi.Constr maxlabor[0]> ┆ <gurobi.Constr (x * weight).su… │
-# └─────────────────────────────┴─────────────────────────────────┘
+df.pipe(
+    xmodel.add_constrs,
+    max_labor = xplor.var("labor_usage").sum() <= MAX_LABOR,
+    max_weight = (xplor.var("x") * pl.col("material_weight")).sum() <= MAX_WEIGHT
+);
 ```
 
 -----

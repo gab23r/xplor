@@ -9,8 +9,6 @@ from xplor._utils import parse_into_expr, series_to_df
 from xplor.types import VarType
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     import gurobipy as gp
     from ortools.math_opt.python import mathopt
 
@@ -57,7 +55,7 @@ class XplorModel(ABC):
         lb: float | str | pl.Expr = 0.0,
         ub: float | str | pl.Expr | None = None,
         obj: float | str | pl.Expr = 0.0,
-        indices: pl.Expr | None = None,
+        indices: pl.Expr | list[str] | None = None,
         vtype: VarType | None = None,
     ) -> pl.Expr:
         """Define and return a Var expression for optimization variables.
@@ -116,14 +114,14 @@ class XplorModel(ABC):
         ```
 
         """
-        indices = pl.row_index() if indices is None else indices
+        indices = pl.concat_str(pl.row_index() if indices is None else indices, separator=",")
         vtype = VarType.CONTINUOUS if vtype is None else vtype
         return pl.map_batches(
             [
                 parse_into_expr(lb).alias("lb"),
                 parse_into_expr(ub).alias("ub"),
                 parse_into_expr(obj).alias("obj"),
-                pl.format(f"{name}[{{}}]", pl.concat_str(indices, separator=",")).alias("name"),
+                pl.format(f"{name}[{{}}]", indices).alias("name"),
             ],
             lambda s: self._add_vars(series_to_df(s), name=name, vtype=vtype),
             return_dtype=pl.Object,
@@ -131,10 +129,11 @@ class XplorModel(ABC):
 
     def add_constrs(
         self,
+        df: pl.DataFrame,
         *constr_exprs: ConstrExpr,
-        indices: pl.Expr | None = None,
+        indices: pl.Expr | list[str] | None = None,
         **named_constr_exprs: ConstrExpr,
-    ) -> pl.Expr:
+    ) -> pl.DataFrame:
         r"""Define and return a Constr expression for model constraints.
 
         This method accepts a symbolic relational expression (e.g., `x <= 5`)
@@ -147,6 +146,8 @@ class XplorModel(ABC):
 
         Parameters
         ----------
+        df: pl.DataFrame
+            The polars DataFrame used to create the constraints
         constr_exprs : ConstrExpr
             The constraints expression (e.g., a relational expression like
             `xplor.var("x").sum() <= 10`).
@@ -174,54 +175,85 @@ class XplorModel(ABC):
         Assuming `df` has been created and contains the variable Series `df["x"]`.
 
         ```python
-        >>> df.select(
-        ...     xmodel.add_constrs(
-                    max_per_item = xplor.var("x") <= pl.col("capacity"),
-                    min_per_item = xplor.var("x") >= pl.col("min_threshold"),
-                    indices=["product"]
-                ),
-        ...     xmodel.add_constrs(total_min_prod = xplor.var("x").sum() >= 100.0)
+        >>> df.pipe(
+        ...     xmodel.add_constrs,
+                max_per_item = xplor.var("x") <= pl.col("capacity"),
+                min_per_item = xplor.var("x") >= pl.col("min_threshold"),
+                indices=["product"]
         ... )
 
         ```
 
         """
+        if isinstance(indices, list):
+            indices = pl.concat_str(indices, separator=",")
+
+        for expr in constr_exprs:
+            name = str(expr)
+            assert name not in named_constr_exprs, f"Duplicated name for constraint {name}"
+            named_constr_exprs[name] = expr
+
+        # We iterate over the constraints expressions,
+        # if the expression has multiple outputs (ex: xplor.var("start", "end") == 1)
+        # we need to run it separatly
+        # For all the other constraints expressions we can compute them in one `select` and one `rows`
+        # constrs_repr_d
         exprs: list[pl.Expr] = []
         constrs_repr_d: dict[str, ExpressionRepr] = {}
-        has_multiple_outputs = False
-        for expr in constr_exprs:
-            expr_repr, exprs = expr.parse(exprs)
-            has_multiple_outputs = has_multiple_outputs or expr.meta.has_multiple_outputs()
-            constrs_repr_d[expr._get_str(expr_repr, exprs)] = expr_repr
         for name, expr in named_constr_exprs.items():
-            constrs_repr_d[name] = expr.parse(exprs)[0]
-            has_multiple_outputs = has_multiple_outputs or expr.meta.has_multiple_outputs()
-        if has_multiple_outputs and len(constrs_repr_d) > 1:
-            msg = (
-                "Cannot provide multiple constraints when one or more constraints might have "
-                "multiple outputs (e.g., `xplor.var('x', 'y').sum()`). "
-                "Please call `add_constrs` separately for each such constraint expression."
-            )
-            raise ValueError(msg)
+            if expr.meta.has_multiple_outputs():
+                df_constrs = df.select(expr)
+                for series in df_constrs.iter_columns():
+                    indices_series = (
+                        series.to_frame().select(pl.row_index())
+                        if indices is None
+                        else df.select(indices)
+                    ).to_series()
+                    for index, tmp_constr in zip(indices_series, series, strict=True):
+                        self._add_constr(tmp_constr, name=f"{series.name}[{index}]")
+            else:
+                constrs_repr_d[name], exprs = expr.parse(exprs)
 
-        indices = pl.lit(None, dtype=pl.Null) if indices is None else pl.struct(indices)
-        return_dtype = (
-            pl.String()
-            if has_multiple_outputs
-            else pl.Struct(dict.fromkeys(constrs_repr_d, pl.String))
-        )
+        if len(constrs_repr_d):
+            df_constrs = df.select([expr.alias(str(i)) for i, expr in enumerate(exprs)])
+            indices_series = (
+                df_constrs.select(pl.row_index()) if indices is None else df.select(indices)
+            ).to_series()
+            self._add_constrs(df_constrs, **constrs_repr_d, indices=indices_series)
+        return df
 
-        mapped_constrs = pl.map_batches(
-            [*exprs, indices],
-            lambda series: self._boardcast_and_add_constrs(
-                series, constrs_repr_d, has_multiple_outputs=has_multiple_outputs
-            ),
-            return_dtype=return_dtype,
-        )
-        if not has_multiple_outputs:  # in the other case, polars automatically unnest.
-            mapped_constrs = mapped_constrs.struct.unnest()
+    @abstractmethod
+    def _add_constr(self, tmp_constr: Any, name: str) -> None:
+        pass
 
-        return mapped_constrs
+    def _add_constrs(
+        self,
+        df: pl.DataFrame,
+        /,
+        indices: pl.Series,
+        **constrs_repr: ExpressionRepr,
+    ) -> None:
+        """Return a series of MathOpt linear constraints.
+
+        This method is called by `XplorModel.add_constrs` after the expression
+        has been processed into rows of data and a constraint string.
+
+        Parameters
+        ----------
+        df : pl.DataFrame
+            A DataFrame containing the necessary components for the constraint expression.
+        indices: pl.Series
+             A Series containing the indices for the constraint names.
+        constrs_repr : ExpressionRepr
+            The evaluated string representation of the constraint expression.
+
+        """
+        # TODO: manage non linear constraint
+        # https://github.com/gab23r/xplor/issues/1
+
+        for row, index in zip(df.rows(), indices, strict=True):
+            for name, constr_repr in constrs_repr.items():
+                self._add_constr(constr_repr.evaluate(row), name=f"{name}[{index}]")
 
     @abstractmethod
     def optimize(self, **kwargs: Any) -> Any:
@@ -273,26 +305,6 @@ class XplorModel(ABC):
         """
 
     @abstractmethod
-    def _add_constrs(
-        self, df: pl.DataFrame, /, indices: pl.Series, **constrs_repr: ExpressionRepr
-    ) -> None:
-        """Return a series of constraints.
-
-        This method iterates over the rows of the processed DataFrame to add constraints
-        individually.
-
-        Parameters
-        ----------
-        df : pl.DataFrame
-            A DataFrame containing the necessary components for the constraint expression.
-        indices: pl.Series
-             A Series containing the indices for the constraint names.
-        constrs_repr : ExpressionRepr
-            The evaluated string representation of the constraint expression.
-
-        """
-
-    @abstractmethod
     def _add_vars(
         self,
         df: pl.DataFrame,
@@ -303,49 +315,3 @@ class XplorModel(ABC):
 
         `df` should contains columns: ["lb", "ub", "obj, "name"].
         """
-
-    def _boardcast_and_add_constrs(
-        self,
-        series: Sequence[pl.Series],
-        constrs_repr_d: dict[str, ExpressionRepr],
-        *,
-        has_multiple_outputs: bool,
-    ) -> pl.Series:
-        """Broadcast all series and call _add_constrs.
-
-        The last series is a struct conaining the indices used for the constraint name.
-        """
-        # Convert series list back to a DataFrame
-        df = series_to_df(series, rename=True)
-        # Extract the last column (the index) as a Series
-        indices = df[:, -1]
-        if indices.dtype.base_type() is pl.Struct:
-            indices = pl.select(pl.concat_str(df[:, -1].struct.unnest(), separator=",")).to_series()
-        else:
-            indices = df.select(pl.row_index().cast(pl.String)).to_series()
-
-        self._add_constrs(
-            df[:, 0:-1],
-            **constrs_repr_d,
-            indices=indices,
-        )
-        if has_multiple_outputs:
-            name = series[0].name
-            return (
-                indices.to_frame("indices")
-                .select(pl.format(f"{name}[{{}}]", pl.col("indices")).alias(name))
-                .to_series()
-            )
-        return (
-            indices.to_frame("indices")
-            # .select(**{name: pl.format(f"{name}[{{}}]", pl.col(indices)) for name in constrs_repr_d})
-            .select(
-                pl.struct(
-                    [
-                        pl.format(f"{name}[{{}}]", pl.col("indices")).alias(name)
-                        for name in constrs_repr_d
-                    ]
-                )
-            )
-            .to_series()
-        )

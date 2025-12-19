@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any
 
 import polars as pl
 from ortools.math_opt.python import mathopt, parameters, result
 
 from xplor.model import XplorModel
 from xplor.types import VarType, cast_to_dtypes
-
-if TYPE_CHECKING:
-    from xplor.exprs.obj import ExpressionRepr
 
 
 class XplorMathOpt(XplorModel):
@@ -100,34 +97,8 @@ class XplorMathOpt(XplorModel):
 
         return self.vars[name]
 
-    def _add_constrs(
-        self,
-        df: pl.DataFrame,
-        /,
-        indices: pl.Series,
-        **constrs_repr: ExpressionRepr,
-    ) -> None:
-        """Return a series of MathOpt linear constraints.
-
-        This method is called by `XplorModel.add_constrs` after the expression
-        has been processed into rows of data and a constraint string.
-
-        Parameters
-        ----------
-        df : pl.DataFrame
-            A DataFrame containing the necessary components for the constraint expression.
-        indices: pl.Series
-             A Series containing the indices for the constraint names.
-        constrs_repr : ExpressionRepr
-            The evaluated string representation of the constraint expression.
-
-        """
-        # TODO: manage non linear constraint
-        # https://github.com/gab23r/xplor/issues/1
-
-        for row, index in zip(df.rows(), indices, strict=True):
-            for name, constr_repr in constrs_repr.items():
-                self.model.add_linear_constraint(constr_repr.evaluate(row), name=f"{name}[{index}]")
+    def _add_constr(self, tmp_constr: Any, name: str) -> None:
+        self.model.add_linear_constraint(tmp_constr, name=name)
 
     def optimize(self, solver_type: parameters.SolverType | None = None) -> None:  # ty:ignore[invalid-method-override]
         """Solve the MathOpt model.
