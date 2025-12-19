@@ -11,8 +11,6 @@ from xplor.types import VarType, cast_to_dtypes
 if TYPE_CHECKING:
     from hexaly.modeler import HxExpression
 
-    from xplor.obj_expr import ExpressionRepr
-
 
 class XplorHexaly(XplorModel):
     """Xplor wrapper for the Hexaly solver.
@@ -80,7 +78,7 @@ class XplorHexaly(XplorModel):
             case VarType.INTEGER:
                 var_f = self.model.int
             case VarType.BINARY:
-                var_f = lambda *_: self.model.bool  # noqa: E731
+                var_f = lambda *_: self.model.bool()  # noqa: E731
 
         for lb_, ub_, obj_, name_ in df.rows():
             (var := var_f(lb_, ub_)).set_name(name_)
@@ -106,36 +104,9 @@ class XplorHexaly(XplorModel):
 
         return self.vars[name]
 
-    def _add_constrs(
-        self, df: pl.DataFrame, expr_repr: ExpressionRepr, names: pl.Series
-    ) -> pl.Series:
-        """Return a series of Hexaly constraints.
-
-        This method is called by `XplorModel.add_constrs` after the expression
-        has been processed into rows of data and a constraint string.
-
-        Parameters
-        ----------
-        df : pl.DataFrame
-            A DataFrame containing the necessary components for the constraint expression.
-        expr_repr : ExpressionRepr
-            The evaluated string representation of the constraint expression.
-        names : pl.Series
-            A series containing the constaints name.
-
-        Returns
-        -------
-        pl.Series
-            A Polars Object Series containing the namd of Hexaly constraint objects.
-
-        """
-        for row in df.rows():
-            self.model.add_constraint(expr_repr.evaluate(row))
-
-        return pl.Series(
-            names,
-            dtype=pl.Object,
-        )
+    def _add_constr(self, tmp_constr: HxExpression, name: str) -> None:
+        tmp_constr.name = name
+        self.model.add_constraint(tmp_constr)
 
     def optimize(self, time_limit: float | None = None) -> None:  # ty:ignore[invalid-method-override]
         """Solve the Hexaly model.
@@ -176,7 +147,7 @@ class XplorHexaly(XplorModel):
 
         """
         sol: HxSolution = self.optimizer.get_solution()
-        status: HxSolutionStatus = sol.get_status()
+        status: type[HxSolutionStatus] = sol.get_status()
         if status in (HxSolutionStatus.INCONSISTENT, HxSolutionStatus.INFEASIBLE):
             msg = f"The Hexaly model status is {status}."
             raise Exception(msg)

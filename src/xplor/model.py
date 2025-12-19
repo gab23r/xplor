@@ -5,16 +5,15 @@ from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
-from xplor._utils import format_indices, parse_into_expr, series_to_df
+from xplor._utils import parse_into_expr, series_to_df
 from xplor.types import VarType
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     import gurobipy as gp
     from ortools.math_opt.python import mathopt
 
-    from xplor.obj_expr import ExpressionRepr, ObjExpr
+    from xplor.exprs import ConstrExpr
+    from xplor.exprs.obj import ExpressionRepr
 
 
 class XplorModel(ABC):
@@ -56,7 +55,7 @@ class XplorModel(ABC):
         lb: float | str | pl.Expr = 0.0,
         ub: float | str | pl.Expr | None = None,
         obj: float | str | pl.Expr = 0.0,
-        indices: pl.Expr | None = None,
+        indices: pl.Expr | list[str] | None = None,
         vtype: VarType | None = None,
     ) -> pl.Expr:
         """Define and return a Var expression for optimization variables.
@@ -115,22 +114,26 @@ class XplorModel(ABC):
         ```
 
         """
-        indices = pl.row_index() if indices is None else indices
+        indices = pl.concat_str(pl.row_index() if indices is None else indices, separator=",")
         vtype = VarType.CONTINUOUS if vtype is None else vtype
         return pl.map_batches(
             [
                 parse_into_expr(lb).alias("lb"),
                 parse_into_expr(ub).alias("ub"),
                 parse_into_expr(obj).alias("obj"),
-                pl.format(f"{name}[{{}}]", pl.concat_str(indices, separator=",")).alias("name"),
+                pl.format(f"{name}[{{}}]", indices).alias("name"),
             ],
             lambda s: self._add_vars(series_to_df(s), name=name, vtype=vtype),
             return_dtype=pl.Object,
         ).alias(name)
 
     def add_constrs(
-        self, expr: ObjExpr, name: str | None = None, indices: pl.Expr | None = None
-    ) -> pl.Expr:
+        self,
+        df: pl.DataFrame,
+        *constr_exprs: ConstrExpr,
+        indices: pl.Expr | list[str] | None = None,
+        **named_constr_exprs: ConstrExpr,
+    ) -> pl.DataFrame:
         r"""Define and return a Constr expression for model constraints.
 
         This method accepts a symbolic relational expression (e.g., `x <= 5`)
@@ -143,15 +146,16 @@ class XplorModel(ABC):
 
         Parameters
         ----------
-        expr : ObjExpr
-            The constraint expression (e.g., a relational expression like
+        df: pl.DataFrame
+            The polars DataFrame used to create the constraints
+        constr_exprs : ConstrExpr
+            The constraints expression (e.g., a relational expression like
             `xplor.var("x").sum() <= 10`).
-        name : str | None, default None
-            The base name for the constraints. If None, the name is deduced
-            from the symbolic expression string (e.g., "x.sum() <= 10").
         indices: pl.Expr | None, default None
             Keys (column names) that uniquely identify each constraint instance.
             Used to format the internal variable names (e.g., 'constr[1,2]').
+        named_constr_exprs : ConstrExpr
+            Other constraints expression
 
         Returns
         -------
@@ -159,33 +163,97 @@ class XplorModel(ABC):
             A Polars expression (`Constr`) that, when executed, adds constraints
             to the model and returns them as an `Object` Series in the DataFrame.
 
+        .. warning::
+            All constraints provided within a single call to `add_constrs` should
+            have the same granularity (i.e., correspond to the same set of indices).
+            If constraints with different granularities are provided, Polars'
+            broadcasting mechanism might lead to constraints being added multiple
+            times to the optimization model.
+
         Examples
         --------
         Assuming `df` has been created and contains the variable Series `df["x"]`.
 
         ```python
-        # Row-wise constrain:
-        >>> df.select(
-        ...     xmodel.add_constrs(xplor.var("x") <= pl.col("capacity"), name="max_per_item")
+        >>> df.pipe(
+        ...     xmodel.add_constrs,
+                max_per_item = xplor.var("x") <= pl.col("capacity"),
+                min_per_item = xplor.var("x") >= pl.col("min_threshold"),
+                indices=["product"]
         ... )
 
-        # Aggregated constraint:
-        >>> df.select(
-        ...     xmodel.add_constrs(xplor.var("x").sum() >= 100.0, name="min_production")
-        ... )
         ```
 
         """
-        expr_repr, exprs = expr.parse()
-        name = name or expr._get_str(expr_repr, exprs)
+        if isinstance(indices, list):
+            indices = pl.concat_str(indices, separator=",")
 
-        indices = pl.lit(None, dtype=pl.Null) if indices is None else pl.struct(indices)
+        for expr in constr_exprs:
+            name = str(expr)
+            assert name not in named_constr_exprs, f"Duplicated name for constraint {name}"
+            named_constr_exprs[name] = expr
 
-        return pl.map_batches(
-            [*exprs, indices],
-            lambda d: self._boardcast_and_add_constrs(d, name, expr_repr),
-            return_dtype=pl.Object,
-        ).alias(name)
+        # We iterate over the constraints expressions,
+        # if the expression has multiple outputs (ex: xplor.var("start", "end") == 1)
+        # we need to run it separatly
+        # For all the other constraints expressions we can compute them in one `select` and one `rows`
+        # constrs_repr_d
+        exprs: list[pl.Expr] = []
+        constrs_repr_d: dict[str, ExpressionRepr] = {}
+        for name, expr in named_constr_exprs.items():
+            if expr.meta.has_multiple_outputs():
+                df_constrs = df.select(expr)
+                for series in df_constrs.iter_columns():
+                    indices_series = (
+                        series.to_frame().select(pl.row_index())
+                        if indices is None
+                        else df.select(indices)
+                    ).to_series()
+                    for index, tmp_constr in zip(indices_series, series, strict=True):
+                        self._add_constr(tmp_constr, name=f"{series.name}[{index}]")
+            else:
+                constrs_repr_d[name], exprs = expr.parse(exprs)
+
+        if len(constrs_repr_d):
+            df_constrs = df.select([expr.alias(str(i)) for i, expr in enumerate(exprs)])
+            indices_series = (
+                df_constrs.select(pl.row_index()) if indices is None else df.select(indices)
+            ).to_series()
+            self._add_constrs(df_constrs, **constrs_repr_d, indices=indices_series)
+        return df
+
+    @abstractmethod
+    def _add_constr(self, tmp_constr: Any, name: str) -> None:
+        pass
+
+    def _add_constrs(
+        self,
+        df: pl.DataFrame,
+        /,
+        indices: pl.Series,
+        **constrs_repr: ExpressionRepr,
+    ) -> None:
+        """Return a series of MathOpt linear constraints.
+
+        This method is called by `XplorModel.add_constrs` after the expression
+        has been processed into rows of data and a constraint string.
+
+        Parameters
+        ----------
+        df : pl.DataFrame
+            A DataFrame containing the necessary components for the constraint expression.
+        indices: pl.Series
+             A Series containing the indices for the constraint names.
+        constrs_repr : ExpressionRepr
+            The evaluated string representation of the constraint expression.
+
+        """
+        # TODO: manage non linear constraint
+        # https://github.com/gab23r/xplor/issues/1
+
+        for row, index in zip(df.rows(), indices, strict=True):
+            for name, constr_repr in constrs_repr.items():
+                self._add_constr(constr_repr.evaluate(row), name=f"{name}[{index}]")
 
     @abstractmethod
     def optimize(self, **kwargs: Any) -> Any:
@@ -237,31 +305,6 @@ class XplorModel(ABC):
         """
 
     @abstractmethod
-    def _add_constrs(
-        self, df: pl.DataFrame, expr_repr: ExpressionRepr, names: pl.Series
-    ) -> pl.Series:
-        """Return a series of constraints.
-
-        This method iterates over the rows of the processed DataFrame to add constraints
-        individually.
-
-        Parameters
-        ----------
-        df : pl.DataFrame
-            A DataFrame containing the necessary components for the constraint expression.
-        expr_repr : ExpressionRepr
-            The evaluated string representation of the constraint expression.
-        names : pl.Series
-            A series containing the constaints name.
-
-        Returns
-        -------
-        pl.Series
-            A Polars Object Series containing the created Gurobi constraint objects.
-
-        """
-
-    @abstractmethod
     def _add_vars(
         self,
         df: pl.DataFrame,
@@ -272,22 +315,3 @@ class XplorModel(ABC):
 
         `df` should contains columns: ["lb", "ub", "obj, "name"].
         """
-
-    def _boardcast_and_add_constrs(
-        self, series: Sequence[pl.Series], name: str, expr_repr: ExpressionRepr
-    ) -> pl.Series:
-        # Convert series list back to a DataFrame
-        df = series_to_df(series, rename_series=True)
-
-        # Select all columns EXCEPT the last one (which is the index)
-        data_df = df.select(~pl.selectors.last())
-
-        # Extract the last column (the index) as a Series
-        index_series = df.select(pl.selectors.last()).to_series()
-
-        # Apply the constraints logic
-        return self._add_constrs(
-            data_df,
-            names=format_indices(name, index_series),
-            expr_repr=expr_repr,
-        )

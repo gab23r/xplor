@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, Self
 
 import polars as pl
 import polars._plr as plr
 
-from xplor._utils import map_rows, series_to_df
+from xplor._utils import expr_ends_with_alias, map_rows, series_to_df
+
+if TYPE_CHECKING:
+    from polars._typing import IntoExpr, IntoExprColumn
 
 OPERATOR_MAP: dict[str, str] = {
     "__add__": "+",
@@ -36,7 +39,7 @@ class ExpressionRepr(str):
     ```
     """
 
-    def evaluate(self, row: tuple[float | int]) -> Any:
+    def evaluate(self, row: tuple[float | int, ...]) -> Any:
         """Evaluate the expression with `row`."""
         return eval(self, globals(), {"row": row})
 
@@ -60,7 +63,7 @@ class ObjExpr(pl.Expr):
 
     Attributes:
         _expr (pl.Expr): The root expression.
-        _expr_name (str | None): The root expression name.
+        _name (str | None): The root expression name.
         _nodes (list[ObjExprNode]): The internal list representing the operation AST.
 
     """
@@ -80,81 +83,100 @@ class ObjExpr(pl.Expr):
         expr_repr, exprs = self.parse()
         return self._get_str(expr_repr, exprs)
 
-    @property
-    def _pyexpr(self) -> plr.PyExpr:
+    def _to_expr(self) -> pl.Expr:
         if not self._nodes:
-            return self._expr._pyexpr
+            return self._expr
         expr_repr, exprs = self.parse()
-        if self._nodes[-1].operator in ("__eq__", "__ge__", "__le__"):
-            msg = (
-                "Temporary constraints are not valid expression.\n"
-                "Please wrap your constraint with `xplor.Model.constr()`"
-            )
-            raise Exception(msg)
+
         return pl.map_batches(
             exprs,
-            lambda s: map_rows(series_to_df(s, rename_series=True), expr_repr.evaluate),
+            lambda s: map_rows(series_to_df(s, rename=True), expr_repr.evaluate),
             return_dtype=pl.Object,
-        )._pyexpr
+        )
 
-    def _append_node(self, operator: str, operand: pl.Expr | float) -> ObjExpr:
+    @property
+    def _pyexpr(self) -> plr.PyExpr:
+        return self._to_expr()._pyexpr
+
+    def _append_node(self, operator: str, operand: pl.Expr | float) -> Self:
         """Append a node and return the current instance for chaining."""
         self._nodes.append(ObjExprNode(operator, operand))
         return self
 
-    def __add__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
+    def __add__(self, other: pl.Expr | float) -> Self:  # ty:ignore[invalid-method-override]
         return self._append_node("__add__", other)
 
-    def __sub__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
+    def __sub__(self, other: pl.Expr | float) -> Self:  # ty:ignore[invalid-method-override]
         return self._append_node("__sub__", other)
 
-    def __rsub__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
+    def __rsub__(self, other: pl.Expr | float) -> Self:  # ty:ignore[invalid-method-override]
         return self._append_node("__rsub__", other)
 
-    def __radd__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
+    def __radd__(self, other: pl.Expr | float) -> Self:  # ty:ignore[invalid-method-override]
         return self._append_node("__radd__", other)
 
-    def __truediv__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
+    def __truediv__(self, other: pl.Expr | float) -> Self:  # ty:ignore[invalid-method-override]
         return self._append_node("__truediv__", other)
 
-    def __rtruediv__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
+    def __rtruediv__(self, other: pl.Expr | float) -> Self:  # ty:ignore[invalid-method-override]
         return self._append_node("__rtruediv__", other)
 
-    def __mul__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
+    def __mul__(self, other: pl.Expr | float) -> Self:  # ty:ignore[invalid-method-override]
         return self._append_node("__mul__", other)
 
-    def __rmul__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
+    def __rmul__(self, other: pl.Expr | float) -> Self:  # ty:ignore[invalid-method-override]
         return self._append_node("__rmul__", other)
 
-    def __eq__(self, other: pl.Expr | float) -> ObjExpr:  # type: ignore[override]
+    def __eq__(self, other: pl.Expr | float) -> Self:  # type: ignore[override]
         return self._append_node("__eq__", other)
 
-    def __le__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
+    def __le__(self, other: pl.Expr | float) -> Self:  # ty:ignore[invalid-method-override]
         return self._append_node("__le__", other)
 
-    def __ge__(self, other: pl.Expr | float) -> ObjExpr:  # ty:ignore[invalid-method-override]
+    def __ge__(self, other: pl.Expr | float) -> Self:  # ty:ignore[invalid-method-override]
         return self._append_node("__ge__", other)
 
-    def fill_null(self, value: Any | pl.Expr | None = None) -> ObjExpr:  # type: ignore
-        """fill_null implementation for object.
+    def alias(self, name: str) -> ObjExpr:
+        """Rename the object expression."""
+        self._name = name
+        self._expr = self._expr.alias(name)
+        return self
 
-        See: https://github.com/pola-rs/polars/issues/25679
-        """
+    def shift(self, n: int | IntoExprColumn = 1, *, fill_value: IntoExpr | None = None) -> ObjExpr:
+        """Shift values by the given number of indices."""
+        if isinstance(n, int):
+
+            def shift_series(d: pl.Series) -> pl.Series:
+                data_list = d.to_list()  # Convert Series chunk to a list for easier manipulation
+                N = len(data_list)
+                fill_values = [fill_value] * min(abs(n), N)
+                return pl.Series(
+                    fill_values + data_list[:-n] if n > 0 else data_list[-n:] + fill_values,
+                    dtype=pl.Object,
+                )
+
+            return ObjExpr(self.map_batches(shift_series, return_dtype=pl.Object))
+        else:
+            return ObjExpr(pl.Expr.shift(self, n, fill_value=fill_value))
+
+    def fill_null(self, value: Any | pl.Expr | None = None) -> ObjExpr:  # type: ignore
+        """fill_null implementation for object."""
         if isinstance(value, pl.Expr):
             return ObjExpr(pl.Expr.fill_null(self, value))
-        obj_value = pl.Expr._from_pyexpr(
-            plr.lit(
-                pl.Series("literal", [value], dtype=pl.Object)._s, allow_object=True, is_scalar=True
-            )
-        )
-        return ObjExpr(self.fill_null(obj_value))
+
+        return ObjExpr(self.fill_null(pl.lit(value, dtype=pl.Object)))
+
+    @property
+    def name(self) -> ObjExprNameNameSpace:
+        """Create an object namespace of all expressions that modify expression names."""
+        return ObjExprNameNameSpace(self)
 
     def parse(self, exprs: list[pl.Expr] | None = None) -> tuple[ExpressionRepr, list[pl.Expr]]:
         """Transform a composite object expression into a list of Polars sub-expressions
         and an equivalent lambda function, using integer indexing for all inputs.
         """
         if exprs is None:
-            exprs: list[pl.Expr] = [self._expr]
+            exprs = [self._expr]
             expr_repr = "row[0]"
         else:
             expr_repr = self._get_expr_repr(exprs, self._expr)
@@ -199,7 +221,9 @@ class ObjExpr(pl.Expr):
         for i, expr in enumerate(exprs):
             if i == 0 and self._name is not None:
                 replacement = self._name
-            elif expr.meta.is_column() or isinstance(expr, ObjExpr):
+            elif isinstance(expr, ObjExpr):
+                replacement = expr._get_str(*expr.parse())
+            elif expr.meta.is_column() or expr_ends_with_alias(expr):
                 replacement = expr.meta.output_name()
             else:
                 replacement = str(expr)
@@ -213,3 +237,20 @@ class ObjExpr(pl.Expr):
             )
 
         return expr_str
+
+
+class ObjExprNameNameSpace:
+    """Namespace for expressions that operate on expression names."""
+
+    _accessor = "name"
+
+    def __init__(self, expr: ObjExpr) -> None:
+        self._pyexpr = expr._pyexpr
+
+    def prefix(self, prefix: str) -> ObjExpr:
+        """Add a prefix to the root column name of the object expression."""
+        return ObjExpr(pl.Expr._from_pyexpr(self._pyexpr.name_prefix(prefix)))
+
+    def suffix(self, suffix: str) -> ObjExpr:
+        """Add a suffix to the root column name of the object expression."""
+        return ObjExpr(pl.Expr._from_pyexpr(self._pyexpr.name_suffix(suffix)))

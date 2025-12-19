@@ -9,7 +9,7 @@ from xplor.model import XplorModel
 from xplor.types import VarType, cast_to_dtypes
 
 if TYPE_CHECKING:
-    from xplor.obj_expr import ExpressionRepr
+    from gurobipy import TempLConstr
 
 
 class XplorGurobi(XplorModel):
@@ -90,56 +90,8 @@ class XplorGurobi(XplorModel):
         self.model.update()
         return self.vars[name]
 
-    def _add_constrs(
-        self, df: pl.DataFrame, expr_repr: ExpressionRepr, names: pl.Series
-    ) -> pl.Series:
-        """Return a series of gurobi linear constraints.
-
-        This method iterates over the rows of the processed DataFrame to add constraints
-        individually, as Gurobi's `addConstrs` does not easily support complex vectorized
-        Polars-derived expressions.
-
-        Parameters
-        ----------
-        df : pl.DataFrame
-            A DataFrame containing the necessary components for the constraint expression.
-        expr_repr : ExpressionRepr
-            The evaluated string representation of the constraint expression.
-        names : pl.Series
-            A series containing the constaints name.
-
-        Returns
-        -------
-        pl.Series
-            A Polars Object Series containing the created Gurobi constraint objects.
-
-        """
-        # TODO: manage non linear constraint
-        # https://github.com/gab23r/xplor/issues/1
-
-        if df.height == 0:
-            return pl.Series(dtype=pl.Object)
-
-        # row = df.row(0)
-        # lhs_constr_type = str(type(row[0]))
-        # rhs_constr_type = str(type(row[1]))
-        # if "GenExpr" in lhs_constr_type or "GenExpr" in rhs_constr_type:
-        #     _add_constr = self.model.addConstr
-        # elif "QuadExpr" in lhs_constr_type or "QuadExpr" in rhs_constr_type:
-        #     _add_constr = self.model.addQConstr
-        # else:
-        #     _add_constr = self.model.addLConstr
-
-        _add_constr = self.model.addLConstr
-        series = pl.Series(
-            [
-                _add_constr(expr_repr.evaluate(row), name=name)
-                for row, name in zip(df.rows(), names, strict=True)
-            ],
-            dtype=pl.Object,
-        )
-        self.model.update()
-        return series
+    def _add_constr(self, tmp_constr: TempLConstr, name: str) -> None:
+        self.model.addLConstr(tmp_constr, name=name)
 
     def optimize(self, **kwargs: Any) -> None:
         """Solve the Gurobi model.

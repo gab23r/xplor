@@ -1,11 +1,10 @@
-import re
 from typing import Any
 
 import polars as pl
 import pytest
 
 import xplor
-from xplor.obj_expr import ExpressionRepr, ObjExpr, ObjExprNode
+from xplor.exprs.obj import ExpressionRepr, ObjExpr, ObjExprNode
 
 
 # Create a base ObjExpr instance
@@ -94,7 +93,7 @@ def test_process_expression_with_expr_operand():
     """Tests parse for operations with another pl.Expr operand."""
     obj_expr_2 = pl.col("b") + ObjExpr(pl.col("a")) + ObjExpr(pl.col("a"))
 
-    expr_repr, exprs = obj_expr_2.parse()
+    expr_repr, exprs = obj_expr_2.parse()  # type: ignore
 
     # Check ExpressionRepr structure (operand is now row[1])
     assert str(expr_repr) == "(row[1] + row[0]) + row[0]"
@@ -114,30 +113,16 @@ def test_pyexpr_for_simple_expr_delegation(obj_expr: ObjExpr):
     assert obj_expr._pyexpr == obj_expr._expr._pyexpr
 
 
-def test_pyexpr_raises_exception_on_constraint_node(obj_expr: ObjExpr):
-    """Tests that a constraint operator (==, >=, <=) raises an exception in _pyexpr."""
-    obj_expr_eq = obj_expr == 10
-    obj_expr_ge = obj_expr >= 10
-    obj_expr_le = obj_expr <= 10
-
-    expected_msg = re.escape(
-        "Temporary constraints are not valid expression.\n"
-        "Please wrap your constraint with `xplor.Model.constr()`"
-    )
-    with pytest.raises(Exception, match=expected_msg):
-        _ = obj_expr_eq._pyexpr
-
-    with pytest.raises(Exception, match=expected_msg):
-        _ = obj_expr_ge._pyexpr
-
-    with pytest.raises(Exception, match=expected_msg):
-        _ = obj_expr_le._pyexpr
-
-
 def test_str() -> None:
     assert str((xplor.var.x + pl.col("ub")) == 1) == "(x + ub) == 1"
     assert str(xplor.var.x.sum() + pl.col("ub").first()) == "x.sum() + ub.first()"
+    assert str(xplor.var.x.sum().alias("a") + pl.col("ub").alias("b")) == "a + b"
     assert str((xplor.var("x") + 1 + pl.col("ub")).sum()) == "((x + 1) + ub).sum()"
+
+    obj_expr = xplor.var.has_started == xplor.var.start + xplor.var.has_started.shift(1).alias(
+        "prev_has_started"
+    )
+    assert str(obj_expr) == "has_started == start + prev_has_started"
 
 
 def test_repr() -> None:
@@ -146,17 +131,6 @@ def test_repr() -> None:
         == "(row[0] + row[0]) + row[0]"
     )
     assert repr(xplor.var("x") + pl.col("^x$")) == "row[0] + row[1]"
-
-
-def test_invalid_dataframe_constraint_raises_exception() -> None:
-    # Define the specific error message you expect
-    expected_message = "Temporary constraints are not valid expression."
-
-    # Use pytest.raises to assert that the code block raises the specified Exception
-    # and also check if the error message contains the expected text.
-    with pytest.raises(Exception, match=expected_message):
-        # The invalid code that is expected to fail
-        pl.DataFrame().with_columns(xplor.var.x == 1)
 
 
 def test_evaluate():
@@ -169,4 +143,4 @@ def test_multi_expression_parsing():
     exprs = obj_expr.parse()[1]
 
     obj_expr2 = 1 + pl.col("c") + xplor.var.a + xplor.var.b
-    assert obj_expr2.parse(exprs)[0] == "(row[2] + row[0]) + row[1]"
+    assert obj_expr2.parse(exprs)[0] == "(row[2] + row[0]) + row[1]"  # type: ignore

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import polars as pl
 
-from xplor.obj_expr import ObjExpr
+from xplor.exprs import ConstrExpr
+from xplor.exprs.obj import ObjExpr
 
 
 class VarExpr(ObjExpr):
@@ -23,7 +24,7 @@ class VarExpr(ObjExpr):
 
         Examples
         --------
-        >>> df.group_by('group').agg(xpl.var.sum())
+        >>> df.group_by('group').agg(xplor.var.sum())
 
         """
         name = str(self) if self.meta.is_column() else f"({self})"
@@ -47,7 +48,7 @@ class VarExpr(ObjExpr):
 
         Examples
         --------
-        >>> df.group_by('group').agg(xpl.var.any())
+        >>> df.group_by('group').agg(xplor.var.any())
 
         """
         import gurobipy as gp
@@ -74,7 +75,7 @@ class VarExpr(ObjExpr):
 
         Examples
         --------
-        >>> df.with_columns(xpl.var.abs())
+        >>> df.with_columns(xplor.var.abs())
 
         """
         import gurobipy as gp
@@ -84,8 +85,39 @@ class VarExpr(ObjExpr):
             name=f"{self}.abs()",
         )
 
+    @property
+    def name(self) -> VarExprNameNameSpace:
+        """Create an object namespace of all var expressions that modify expression names."""
+        return VarExprNameNameSpace(self)
 
-class _ProxyObjExpr:
+    def __eq__(self, other: pl.Expr | float) -> ConstrExpr:  # type: ignore[override]
+        return ConstrExpr.from_obj_expr(self._append_node("__eq__", other))
+
+    def __le__(self, other: pl.Expr | float) -> ConstrExpr:  # ty:ignore[invalid-method-override]
+        return ConstrExpr.from_obj_expr(self._append_node("__le__", other))
+
+    def __ge__(self, other: pl.Expr | float) -> ConstrExpr:  # ty:ignore[invalid-method-override]
+        return ConstrExpr.from_obj_expr(self._append_node("__ge__", other))
+
+
+class VarExprNameNameSpace:
+    """Namespace for var expressions that operate on expression names."""
+
+    _accessor = "name"
+
+    def __init__(self, expr: VarExpr) -> None:
+        self._pyexpr = expr._pyexpr
+
+    def prefix(self, prefix: str) -> VarExpr:
+        """Add a prefix to the root column name of the object expression."""
+        return VarExpr(pl.Expr._from_pyexpr(self._pyexpr.name_prefix(prefix)))
+
+    def suffix(self, suffix: str) -> VarExpr:
+        """Add a suffix to the root column name of the object expression."""
+        return VarExpr(pl.Expr._from_pyexpr(self._pyexpr.name_suffix(suffix)))
+
+
+class _ProxyVarExpr:
     """The entry point for creating custom expression objects (VarExpr) that represent
     variables or columns used within a composite Polars expression chain.
 
