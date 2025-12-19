@@ -23,14 +23,6 @@ class ConstrExpr(ObjExpr):
 
         return new_constr
 
-    # @property
-    # def _pyexpr(self) -> plr.PyExpr:
-    #     msg = (
-    #         "Temporary constraints are not valid expression.\n"
-    #         "Please wrap your constraint with `xplor.Model.add_constrs()`"
-    #     )
-    #     raise Exception(msg)
-
     @property
     def name(self) -> ConstrExprNameNameSpace:
         """Create an object namespace of all expressions that modify expression names."""

@@ -1,4 +1,3 @@
-import re
 from typing import Any
 
 import polars as pl
@@ -6,7 +5,6 @@ import pytest
 
 import xplor
 from xplor.exprs.obj import ExpressionRepr, ObjExpr, ObjExprNode
-from xplor.exprs.var import VarExpr
 
 
 # Create a base ObjExpr instance
@@ -113,29 +111,6 @@ def test_pyexpr_for_simple_expr_delegation(obj_expr: ObjExpr):
     """Tests that _pyexpr returns the root expression's pyexpr when no nodes exist."""
     # In this case, it should just return the underlying pl.col("a") pyexpr
     assert obj_expr._pyexpr == obj_expr._expr._pyexpr
-
-
-@pytest.mark.skip
-def test_pyexpr_raises_exception_on_constraint_node():
-    """Tests that a constraint operator (==, >=, <=) raises an exception in _pyexpr."""
-
-    obj_expr = VarExpr(pl.col("a"))
-    obj_expr_eq = obj_expr == 10
-    obj_expr_ge = obj_expr >= 10
-    obj_expr_le = obj_expr <= 10
-
-    expected_msg = re.escape(
-        "Temporary constraints are not valid expression.\n"
-        "Please wrap your constraint with `xplor.Model.add_constrs()`"
-    )
-    with pytest.raises(Exception, match=expected_msg):
-        _ = obj_expr_eq._pyexpr
-
-    with pytest.raises(Exception, match=expected_msg):
-        _ = obj_expr_ge._pyexpr
-
-    with pytest.raises(Exception, match=expected_msg):
-        _ = obj_expr_le._pyexpr
 
 
 def test_str() -> None:
