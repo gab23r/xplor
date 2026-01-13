@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Self
+
 import polars as pl
 
 from xplor.exprs import ConstrExpr
@@ -19,7 +21,7 @@ class VarExpr(ObjExpr):
 
     def sum(
         self,
-    ) -> VarExpr:
+    ) -> Self:
         """Get sum value.
 
         Examples
@@ -28,61 +30,11 @@ class VarExpr(ObjExpr):
 
         """
         name = str(self) if self.meta.is_column() else f"({self})"
-        return VarExpr(
-            self.map_batches(lambda d: sum(d), return_dtype=pl.Object, returns_scalar=True),
-            name=name + ".sum()",
-        )
-
-    def any(self) -> pl.Expr:  # type: ignore
-        """Create a Gurobi OR constraint from elements in each group.
-
-        Parameters
-        ----------
-        expr : pl.Expr | str
-            Column name or polars expression containing Gurobi variables or expressions
-
-        Returns
-        -------
-        pl.Expr
-            Expression that will return the Gurobi OR of elements in each group
-
-        Examples
-        --------
-        >>> df.group_by('group').agg(xplor.var.any())
-
-        """
-        import gurobipy as gp
-
-        return VarExpr(
+        return self.__class__(
             self.map_batches(
-                lambda d: gp.or_(d.to_list()), return_dtype=pl.Object, returns_scalar=True
+                lambda d: sum(d.to_list()), return_dtype=pl.Object, returns_scalar=True
             ),
-            name=f"{self}.any()",
-        )
-
-    def abs(self) -> VarExpr:
-        """Apply Gurobi's absolute value function to elements in each group.
-
-        Parameters
-        ----------
-        expr : pl.Expr | str
-            Column name or polars expression containing Gurobi variables or expressions
-
-        Returns
-        -------
-        pl.Expr
-            Expression that will return the absolute value of elements in each group
-
-        Examples
-        --------
-        >>> df.with_columns(xplor.var.abs())
-
-        """
-        import gurobipy as gp
-
-        return VarExpr(
-            self.map_elements(lambda d: gp.abs_(d), return_dtype=pl.Object),
-            name=f"{self}.abs()",
+            name=name + ".sum()",
         )
 
     @property

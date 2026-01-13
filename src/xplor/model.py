@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from functools import cached_property
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 import polars as pl
 
 from xplor._utils import parse_into_expr, series_to_df
+from xplor.exprs.var import _ProxyVarExpr
 from xplor.types import VarType
 
 if TYPE_CHECKING:
@@ -62,6 +64,26 @@ class XplorModel(ABC, Generic[ModelType, ExpressionType]):
         self.vars: dict[str, pl.Series] = {}
         self.var_types: dict[str, VarType] = {}
         self._priority_obj_terms: dict[int, ExpressionType] = {}
+
+    @cached_property
+    def var(self) -> _ProxyVarExpr:
+        """The entry point for creating custom expression objects (VarExpr) that represent
+        variables or columns used within a composite Polars expression chain.
+
+        This proxy acts similarly to `polars.col()`, allowing you to reference
+        optimization variables (created via `xmodel.add_vars()`) or standard DataFrame columns
+        in a solver-compatible expression.
+
+        The resulting expression object can be combined with standard Polars expressions
+        to form constraints or objective function components.
+
+        Examples:
+        >>> xmodel = XplorMathOpt()
+        >>> df = df.with_columns(xmodel.add_vars("production"))
+        >>> df.select(total_cost = xmodel.var("production") * pl.col("cost"))
+
+        """
+        return _ProxyVarExpr()
 
     def add_vars(
         self,

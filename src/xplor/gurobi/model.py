@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 import gurobipy as gp
 import polars as pl
 
+from xplor.gurobi.var import _ProxyGurobiVarExpr
 from xplor.model import XplorModel
 from xplor.types import VarType, cast_to_dtypes
 
@@ -54,6 +56,26 @@ class XplorGurobi(XplorModel[gp.Model, gp.LinExpr]):
         """
         model = gp.Model() if model is None else model
         super().__init__(model=model)
+
+    @cached_property
+    def var(self) -> _ProxyGurobiVarExpr:
+        """The entry point for creating custom expression objects (VarExpr) that represent
+        variables or columns used within a composite Polars expression chain.
+
+        This proxy acts similarly to `polars.col()`, allowing you to reference
+        optimization variables (created via `xmodel.add_vars()`) or standard DataFrame columns
+        in a solver-compatible expression.
+
+        The resulting expression object can be combined with standard Polars expressions
+        to form constraints or objective function components.
+
+        Examples:
+        >>> xmodel = XplorMathOpt()
+        >>> df = df.with_columns(xmodel.add_vars("production"))
+        >>> df.select(total_cost = xmodel.var("production") * pl.col("cost"))
+
+        """
+        return _ProxyGurobiVarExpr()
 
     def _add_vars(
         self,
