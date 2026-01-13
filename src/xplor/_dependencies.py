@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+import importlib.metadata
 import sys
 from typing import TYPE_CHECKING, Any
 
@@ -8,14 +10,23 @@ if TYPE_CHECKING:
     from ortools.math_opt.python import mathopt
 
 
-def is_gurobipy_imported() -> bool:
+def is_installed(distribution_name: str) -> bool:
     """Check if gurobipy module is already imported."""
-    return "gurobipy" in sys.modules
+    try:
+        importlib.metadata.version(distribution_name)
+    except importlib.metadata.PackageNotFoundError:
+        return False
+    return True
 
 
 def is_ortools_imported() -> Any:
     """Check if ortools module is already imported."""
-    return sys.modules.get("ortools", None)
+    return "ortools" in sys.modules
+
+
+def is_hexay_imported() -> Any:
+    """Check if ortools module is already imported."""
+    return "hexaly" in sys.modules
 
 
 def get_gurobipy_model_type() -> type[gp.Model] | None:
