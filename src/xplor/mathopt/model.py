@@ -77,8 +77,8 @@ class XplorMathOpt(XplorModel):
         # mathopt.Model don't super binary variable directly
         if vtype == "BINARY":
             df = df.with_columns(
-                pl.col("lb").clip(lower_bound=0).fill_null(0),
-                pl.col("ub").clip(upper_bound=1).fill_null(1),
+                pl.col("lb").fill_null(0).clip(lower_bound=0).fill_null(0),
+                pl.col("ub").fill_null(1).clip(upper_bound=1).fill_null(1),
             )
         self.var_types[name] = vtype
         self.vars[name] = pl.Series(
@@ -91,9 +91,7 @@ class XplorMathOpt(XplorModel):
             dtype=pl.Object,
         )
         if df.select("obj").filter(pl.col("obj") != 0).height:
-            self.model.minimize_linear_objective(
-                sum([w * v for w, v in zip(df["obj"], self.vars[name], strict=True)])
-            )
+            self._objs.append(sum([w * v for w, v in zip(df["obj"], self.vars[name], strict=True)]))
 
         return self.vars[name]
 
@@ -122,6 +120,8 @@ class XplorMathOpt(XplorModel):
 
         """
         solver_type = mathopt.SolverType.GLOP if solver_type is None else solver_type
+
+        self.model.minimize_linear_objective(sum(self._objs))
         self.result = mathopt.solve(self.model, solver_type)
 
     def get_objective_value(self) -> float:

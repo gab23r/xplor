@@ -48,6 +48,8 @@ class XplorModel(ABC):
         self.vars: dict[str, pl.Series] = {}
         self.var_types: dict[str, VarType] = {}
 
+        self._objs: list = []
+
     def add_vars(
         self,
         name: str,
