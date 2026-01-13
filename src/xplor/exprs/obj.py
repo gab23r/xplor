@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Self
+from typing import Any, Self
 
 import polars as pl
 import polars._plr as plr
 
 from xplor._utils import expr_ends_with_alias, map_rows, series_to_df
-
-if TYPE_CHECKING:
-    from polars._typing import IntoExpr, IntoExprColumn
 
 OPERATOR_MAP: dict[str, str] = {
     "__add__": "+",
@@ -141,30 +138,6 @@ class ObjExpr(pl.Expr):
         self._name = name
         self._expr = self._expr.alias(name)
         return self
-
-    def shift(self, n: int | IntoExprColumn = 1, *, fill_value: IntoExpr | None = None) -> ObjExpr:
-        """Shift values by the given number of indices."""
-        if isinstance(n, int):
-
-            def shift_series(d: pl.Series) -> pl.Series:
-                data_list = d.to_list()  # Convert Series chunk to a list for easier manipulation
-                N = len(data_list)
-                fill_values = [fill_value] * min(abs(n), N)
-                return pl.Series(
-                    fill_values + data_list[:-n] if n > 0 else data_list[-n:] + fill_values,
-                    dtype=pl.Object,
-                )
-
-            return ObjExpr(self.map_batches(shift_series, return_dtype=pl.Object))
-        else:
-            return ObjExpr(pl.Expr.shift(self, n, fill_value=fill_value))
-
-    def fill_null(self, value: Any | pl.Expr | None = None) -> ObjExpr:  # type: ignore
-        """fill_null implementation for object."""
-        if isinstance(value, pl.Expr):
-            return ObjExpr(pl.Expr.fill_null(self, value))
-
-        return ObjExpr(self.fill_null(pl.lit(value, dtype=pl.Object)))
 
     @property
     def name(self) -> ObjExprNameNameSpace:
