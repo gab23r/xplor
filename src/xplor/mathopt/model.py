@@ -145,29 +145,29 @@ class XplorMathOpt(XplorModel):
             raise Exception(msg)
         return self.result.objective_value()
 
-    def get_variable_values(self, name: str) -> pl.Series:
-        """Read the optimal values of a variable series from the MathOpt solution.
-
-        The method ensures the returned Polars Series has the correct data type
-        (Float64 for continuous, Int64 for integer/binary).
+    def read_values(self, name: pl.Expr) -> pl.Expr:
+        """Read the value of an optimization variable.
 
         Parameters
         ----------
-        name : str
-            The base name used when the variable series was created with `xmodel.add_vars()`.
+        name : pl.Expr
+            Expression to evaluate.
 
         Returns
         -------
-        pl.Series
-            A Polars Series containing the optimal variable values.
+        pl.Expr
+            Values of the variable expression.
 
         Examples
         --------
-        >>> # Assuming 'production' was the variable name used in add_vars
-        >>> solution_series = xmodel.get_variable_values("production")
-        >>> df_with_solution = df.with_columns(solution_series.alias("solution"))
+        >>> xmodel: XplorModel
+        >>> df_with_solution = df.with_columns(xmodel.read_values(pl.selectors.object()))
 
         """
-        return cast_to_dtypes(
-            pl.Series(name, self.result.variable_values(self.vars[name])), self.var_types[name]
+        result_values = self.result.variable_values()
+        return name.map_batches(
+            lambda d: cast_to_dtypes(
+                pl.Series([result_values.get(v) for v in d]),
+                self.var_types.get(d.name, VarType.CONTINUOUS),
+            )
         )

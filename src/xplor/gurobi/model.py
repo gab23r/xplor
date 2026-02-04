@@ -117,28 +117,37 @@ class XplorGurobi(XplorModel):
         """
         return self.model.getObjective().getValue()
 
-    def get_variable_values(self, name: str) -> pl.Series:
-        """Read the optimal values of a variable series from the Gurobi solution.
-
-        The method reads the `.x` attribute from each Gurobi variable object and
-        ensures the returned Polars Series has the correct data type
-        (Float64 for continuous, Int64 for integer/binary).
+    def read_values(self, name: pl.Expr) -> pl.Expr:
+        """Read the value of an optimization variable.
 
         Parameters
         ----------
-        name : str
-            The base name used when the variable series was created with `xmodel.add_vars()`.
+        name : pl.Expr
+            Expression to evaluate.
 
         Returns
         -------
-        pl.Series
-            A Polars Series containing the optimal variable values.
+        pl.Expr
+            Values of the variable expression.
 
         Examples
         --------
-        >>> # Assuming 'flow' was the variable name used in add_vars
-        >>> solution_series = xmodel.get_variable_values("flow")
-        >>> df_with_solution = df.with_columns(solution_series.alias("solution"))
+        >>> xmodel: XplorModel
+        >>> df_with_solution = df.with_columns(xmodel.read_values(pl.selectors.object()))
 
         """
-        return cast_to_dtypes(pl.Series(name, [e.x for e in self.vars[name]]), self.var_types[name])
+
+        def _extract(v: Any) -> float | None:
+            if hasattr(v, "x"):
+                return v.x
+            if v is None:
+                return None
+            if hasattr(v, "getValue"):
+                return v.getValue()
+            return float(v)
+
+        return name.map_batches(
+            lambda d: cast_to_dtypes(
+                pl.Series([_extract(v) for v in d]), self.var_types.get(d.name, VarType.CONTINUOUS)
+            )
+        )

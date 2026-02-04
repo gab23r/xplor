@@ -290,19 +290,23 @@ class XplorModel(ABC):
         """
 
     @abstractmethod
-    def get_variable_values(self, name: str) -> pl.Series:
-        """Read the value of an optimization variable series from the solution.
+    def read_values(self, name: pl.Expr) -> pl.Expr:
+        """Read the value of an optimization variable.
 
         Parameters
         ----------
-        name : str
-            The base name used when the variable series was created with `xmodel.add_vars()`.
+        name : pl.Expr
+            Expression to evaluate.
 
         Returns
         -------
-        pl.Series
-            A Polars Series (Float64 or Integer) containing the optimal values
-            for the variables, aligned with the order of creation.
+        pl.Expr
+            Values of the variable expression.
+
+        Examples
+        --------
+        >>> xmodel: XplorModel
+        >>> df_with_solution = df.with_columns(xmodel.read_values(pl.selectors.object()))
 
         """
 
