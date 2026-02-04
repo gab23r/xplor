@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 from hexaly.optimizer import HexalyOptimizer, HxModel, HxSolution, HxSolutionStatus
@@ -158,23 +158,35 @@ class XplorHexaly(XplorModel):
             msg = "At least one objective is required in the model."
             raise Exception(msg)
 
-    def get_variable_values(self, name: str) -> pl.Series:
-        """Read the optimal values of a variable series from the Hexaly solution.
-
-        The method ensures the returned Polars Series has the correct data type
-        (Float64 for continuous, Int64 for integer/binary).
+    def read_values(self, name: pl.Expr) -> pl.Expr:
+        """Read the value of an optimization variable.
 
         Parameters
         ----------
-        name : str
-            The base name used when the variable series was created with `xmodel.add_vars()`.
+        name : pl.Expr
+            Expression to evaluate.
 
         Returns
         -------
-        pl.Series
-            A Polars Series containing the optimal variable values.
+        pl.Expr
+            Values of the variable expression.
+
+        Examples
+        --------
+        >>> xmodel: XplorModel
+        >>> df_with_solution = df.with_columns(xmodel.read_values(pl.selectors.object()))
 
         """
-        return cast_to_dtypes(
-            pl.Series(name, [v.value for v in self.vars[name]]), self.var_types[name]
+
+        def _extract(v: Any) -> float | None:
+            if hasattr(v, "value"):
+                return v.value
+            if v is None:
+                return None
+            return float(v)
+
+        return name.map_batches(
+            lambda d: cast_to_dtypes(
+                pl.Series([_extract(v) for v in d]), self.var_types.get(d.name, VarType.CONTINUOUS)
+            )
         )

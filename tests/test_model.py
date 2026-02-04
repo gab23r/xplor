@@ -47,7 +47,7 @@ def test_linear_optimization_problem(
     assert objective_value == pytest.approx(obj_value, rel=1e-4)
 
     # Check Variable Values
-    result = xmodel.get_variable_values("x")
+    result = df.select(xmodel.read_values(pl.col("x"))).to_series()
     assert result.dtype == dtype
     assert result.to_list() == pytest.approx(var_value, rel=1e-4)
 
