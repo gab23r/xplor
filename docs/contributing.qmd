@@ -57,6 +57,38 @@ uv run pytest
 great-docs build
 ```
 
+### Task Runner (`just`)
+
+This project uses [`just`](https://github.com/casey/just) as a command runner to simplify common development tasks.
+
+**Installation:**
+
+```bash
+# macOS
+brew install just
+
+# Linux
+# See https://github.com/casey/just#installation
+
+# Or via cargo
+cargo install just
+```
+
+**Available commands:**
+
+```bash
+just install       # Install dependencies
+just test          # Run tests
+just test-cov      # Run tests with coverage report
+just lint          # Check code with ruff
+just fix           # Auto-fix linting and formatting issues
+just pre-commit    # Run pre-commit hooks
+just build         # Build the package
+just clean         # Remove build artifacts and cache
+just bump <type>   # Bump version, commit, push and publish (patch|minor|major)
+just help          # List all available commands
+```
+
 ## Questions?
 
 Feel free to open an issue for questions or discussions about contributing.

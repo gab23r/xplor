@@ -322,8 +322,8 @@ for html_file in html_files:
             insert_after_line = header_end_line
 
         # Apply italic styling to the description
-        if "style=" not in first_p_content:
-            styled_p = first_p_content.replace(
+        if "style=" not in first_p_content:  # ty:ignore[unsupported-operator]
+            styled_p = first_p_content.replace(  # ty:ignore[possibly-missing-attribute]
                 "<p>",
                 '<p class="doc-description" style="font-size: 1rem; font-style: italic; margin-top: 0.25rem; line-height: 1.3;">',
             )
