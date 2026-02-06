@@ -38,6 +38,15 @@ just prek
 # Build package
 just build
 
+# Build documentation
+just docs-build
+
+# Serve docs locally with live reload
+just docs-serve
+
+# Deploy docs to GitHub Pages
+just docs-deploy
+
 # Clean build artifacts
 just clean
 ```
@@ -125,10 +134,14 @@ Expressions are lazy - they produce Polars expressions that are only evaluated w
 
 ## Documentation
 
-- Built with Quarto and `great-docs` (custom documentation generator)
-- Source: `docs/` directory (.qmd and .md files)
+- Built with **MkDocs** using **Material for MkDocs** theme
+- API documentation generated automatically with **mkdocstrings** from NumPy-style docstrings
+- Source: `docs/` directory (Markdown files)
+- Home page (`docs/index.md`) includes content from `README.md` via snippets
 - Published to: https://gab23r.github.io/xplor/
-- Do not modify `docs/_site/` (auto-generated)
+- Build output: `site/` directory (auto-generated, do not modify)
+- Local preview: `just docs-serve` (live reload at http://127.0.0.1:8000)
+- Deploy: `just docs-deploy` or via GitHub Actions on push to main
 
 ## Important Notes
 
