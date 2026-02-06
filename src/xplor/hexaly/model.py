@@ -31,9 +31,6 @@ class XplorHexaly(XplorModel[HxModel, HxExpression]):
 
     """
 
-    optimizer: HexalyOptimizer
-    model: HxModel
-
     def __init__(self, optimizer: HexalyOptimizer | None = None) -> None:  # Updated type hint
         """Initialize the XplorHexaly model wrapper.
         If no Hexaly solver instance is provided, a new one is instantiated.

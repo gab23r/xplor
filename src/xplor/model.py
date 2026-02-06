@@ -47,6 +47,8 @@ class XplorModel(ABC, Generic[ModelType, ExpressionType]):
 
     """
 
+    model: ModelType
+
     def __init__(self, model: ModelType) -> None:
         """Initialize the model wrapper.
 
