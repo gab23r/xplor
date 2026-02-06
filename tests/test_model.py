@@ -52,16 +52,26 @@ def test_linear_optimization_problem(
     assert result.to_list() == pytest.approx(var_value, rel=1e-4)
 
 
-@pytest.mark.skip("need to add xmodel.constrs attributes")
+# @pytest.mark.skip("need to add xmodel.constrs attributes")
 def test_add_constrs():
     xmodel = XplorGurobi()
 
     df = pl.DataFrame(
         {"id": [0, 1], "lb": [-1.0, 0.0], "ub": [1.5, 1.0], "obj": [-1, -2]}
     ).with_columns(xmodel.add_vars("x"), xmodel.add_vars("y"))
-    assert df.pipe(
-        xmodel.add_constrs, xplor.var("x", "y").sum().name.suffix(".sum()") == 1
-    ).to_dict(as_series=False) == {"x.sum()": ["x.sum()[0]"], "y.sum()": ["y.sum()[0]"]}
-    assert df.pipe(xmodel.add_constrs, (xplor.var("x").sum().name.suffix(".sum()")) == 1).to_dict(
-        as_series=False
-    ) == {"x.sum() == 1": ["x.sum() == 1[0]"]}
+
+    xmodel.add_constrs(df, xplor.var("x", "y").sum().name.suffix(".sum()") == 1)
+    xmodel.add_constrs(df, (xplor.var("x") + 1).sum() >= 1.5, (xplor.var("y") + 1).sum() >= 1.5)
+    xmodel.add_constrs(
+        df,
+        xplor.var("x") - xplor.var("y") >= 0.5,
+    )
+    xmodel.model.update()
+    assert [constr.ConstrName for constr in xmodel.model.getConstrs()] == [
+        "x.sum()[0]",
+        "y.sum()[0]",
+        "(x + 1).sum() >= 1.5[0]",
+        "(y + 1).sum() >= 1.5[0]",
+        "(x - y) >= 0.5[0]",
+        "(x - y) >= 0.5[1]",
+    ]

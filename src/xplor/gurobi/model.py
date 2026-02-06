@@ -12,17 +12,24 @@ if TYPE_CHECKING:
     from gurobipy import TempLConstr
 
 
-class XplorGurobi(XplorModel):
+class XplorGurobi(XplorModel[gp.Model, gp.LinExpr]):
     """Xplor wrapper for the Gurobi solver.
 
     This class provides a specialized wrapper for Gurobi, translating XplorModel's
     abstract operations into Gurobi-specific API calls for defining variables,
     constraints, optimizing, and extracting solutions.
 
+    Type Parameters
+    ----------------
+    ModelType : gp.Model
+        The Gurobi model type.
+    ExpressionType : gp.LinExpr
+        Stores objective terms as Gurobi LinExpr objects.
+
     Attributes
     ----------
-    model : gurobipy.Model | mathopt.Model
-        The instantiated underlying solver model object.
+    model : gp.Model
+        The instantiated Gurobi model object.
     vars : dict[str, pl.Series]
         A dictionary storing Polars Series of optimization variables,
         indexed by name.
@@ -53,12 +60,13 @@ class XplorGurobi(XplorModel):
         df: pl.DataFrame,
         name: str,
         vtype: VarType = VarType.CONTINUOUS,
+        priority: int = 0,
     ) -> pl.Series:
-        """Return a series of gurobi variables`.
+        """Create Gurobi variables and accumulate objective coefficients by priority.
 
-        This method leverages NumPy arrays from Polars columns to perform vectorized
-        variable creation, setting the lower bound, upper bound, and objective
-        coefficient in a single call.
+        For multi-objective optimization, objective coefficients are not passed to
+        addMVar. Instead, they are accumulated by priority level and built into
+        objective expressions in optimize() using setObjectiveN().
 
         Parameters
         ----------
@@ -68,6 +76,8 @@ class XplorGurobi(XplorModel):
             The base name for the variables.
         vtype : VarType, default VarType.CONTINUOUS
             The type of the variable.
+        priority : int, default 0
+            Multi-objective optimization priority (higher values optimized first).
 
         Returns
         -------
@@ -76,17 +86,28 @@ class XplorGurobi(XplorModel):
 
         """
         self.var_types[name] = vtype
-        self.vars[name] = pl.Series(
-            self.model.addMVar(
-                df.height,
-                vtype=getattr(gp.GRB, vtype),
-                lb=df["lb"].to_numpy() if df["lb"].dtype != pl.Null else None,
-                ub=df["ub"].to_numpy() if df["ub"].dtype != pl.Null else None,
-                obj=df["obj"].to_numpy() if df["obj"].dtype != pl.Null else None,
-                name=df["name"].to_list(),
-            ).tolist(),
-            dtype=pl.Object(),
+
+        # Create variables WITHOUT obj parameter (required for multi-objective)
+        mvar = self.model.addMVar(
+            df.height,
+            vtype=getattr(gp.GRB, vtype),
+            lb=df["lb"].to_numpy() if df["lb"].dtype != pl.Null else None,
+            ub=df["ub"].to_numpy() if df["ub"].dtype != pl.Null else None,
+            name=df["name"].to_list(),
         )
+
+        # Store variables as Series
+        self.vars[name] = pl.Series(mvar.tolist(), dtype=pl.Object())
+
+        # Accumulate objective coefficients for this priority level
+        # Only store non-zero coefficients to avoid unnecessary terms
+        if df.filter(pl.col("obj") != 0).height:
+            obj_expr = gp.LinExpr(df["obj"].to_list(), mvar.tolist())
+            if priority not in self._priority_obj_terms:
+                self._priority_obj_terms[priority] = obj_expr
+            else:
+                self._priority_obj_terms[priority] += obj_expr
+
         self.model.update()
         return self.vars[name]
 
@@ -96,26 +117,89 @@ class XplorGurobi(XplorModel):
     def optimize(self, **kwargs: Any) -> None:
         """Solve the Gurobi model.
 
-        Calls the Gurobi model's built-in `optimize()` method. The `solver_type`
-        parameter is accepted for API consistency with `XplorModel`, but is ignored,
-        as Gurobi manages its own solver configuration.
-
+        Before optimization, sets up multi-objective functions using setObjectiveN
+        if multiple priority levels are defined. Higher priority values are optimized
+        first (consistent with Gurobi's convention).
 
         """
+        # Build multi-objective functions from accumulated terms
+        if self._priority_obj_terms:
+            # Sort priorities descending (highest user priority first)
+            user_priorities = sorted(self._priority_obj_terms.keys(), reverse=True)
+
+            for obj_index, priority in enumerate(user_priorities):
+                # Set multi-objective
+                self.model.setObjectiveN(
+                    self._priority_obj_terms[priority],
+                    index=obj_index,
+                    priority=priority,
+                    weight=1.0,
+                    name=f"priority_{priority}",
+                )
+
+            self.model.update()
+
         self.model.optimize(**kwargs)
 
     def get_objective_value(self) -> float:
         """Return the objective value from the solved Gurobi model.
-
-        The value is retrieved directly from the Gurobi model's objective object.
 
         Returns
         -------
         float
             The value of the objective function.
 
+        Raises
+        ------
+        ValueError
+            If the model has multiple objectives. Use get_multi_objective_values() instead.
+
         """
+        if self.model.NumObj > 1:
+            msg = (
+                f"Model has {self.model.NumObj} objectives. "
+                "Use get_multi_objective_values() to retrieve all objective values."
+            )
+            raise ValueError(msg)
         return self.model.getObjective().getValue()
+
+    def get_multi_objective_values(self) -> dict[int, float]:
+        """Return all objective values from a multi-objective Gurobi model.
+
+        Returns a dictionary mapping user priority levels to their objective values.
+
+        Returns
+        -------
+        dict[int, float]
+            Dictionary mapping priority level to objective value.
+            Keys are user priority levels (higher priority = higher number).
+            Values are the objective values for each priority.
+
+        Examples
+        --------
+        >>> xmodel.optimize()
+        >>> obj_values = xmodel.get_multi_objective_values()
+        >>> print(obj_values)
+        {2: -150.0, 1: 50.0, 0: 10.0}  # priority -> objective value
+
+        """
+        if self.model.NumObj == 0:
+            return {}
+
+        # Build mapping from Gurobi objective index to user priority
+        # We stored objectives with name "priority_{user_priority}"
+        result = {}
+
+        for obj_idx in range(self.model.NumObj):
+            self.model.setParam("ObjNumber", obj_idx)
+            obj_name = self.model.ObjNName
+
+            # Extract user priority from name "priority_{user_priority}"
+            if obj_name.startswith("priority_"):
+                user_priority = int(obj_name.split("_")[1])
+                result[user_priority] = self.model.ObjNVal
+
+        return result
 
     def read_values(self, name: pl.Expr) -> pl.Expr:
         """Read the value of an optimization variable.

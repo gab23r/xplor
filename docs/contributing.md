@@ -1,8 +1,6 @@
----
-title: "Contributing"
----
+# Contributing
 
-Thank you for your interest in contributing to `xplor`\! We welcome contributions from the community, whether it's reporting bugs, suggesting features, improving documentation, or submitting code.
+Thank you for your interest in contributing to `xplor`! We welcome contributions from the community, whether it's reporting bugs, suggesting features, improving documentation, or submitting code.
 
 ## 🤝 How to Contribute
 
@@ -41,7 +39,7 @@ The setup includes installing the optional dependencies needed for testing multi
 
 ```bash
 # Clone your fork (replace YOUR-USERNAME)
-git clone https://https://github.com/YOUR-USERNAME/xplor.git
+git clone https://github.com/YOUR-USERNAME/xplor.git
 cd xplor
 
 # Install development dependencies
@@ -53,8 +51,11 @@ uv run prek install
 # Run test
 uv run pytest
 
-# Build the doc
-great-docs build
+# Build the documentation
+mkdocs build
+
+# Serve docs locally
+mkdocs serve
 ```
 
 ### Task Runner (`just`)
@@ -82,7 +83,7 @@ just test          # Run tests
 just test-cov      # Run tests with coverage report
 just lint          # Check code with ruff
 just fix           # Auto-fix linting and formatting issues
-just pre-commit    # Run pre-commit hooks
+just prek          # Run pre-commit hooks
 just build         # Build the package
 just clean         # Remove build artifacts and cache
 just bump <type>   # Bump version, commit, push and publish (patch|minor|major)

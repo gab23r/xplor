@@ -42,9 +42,21 @@ bump type:
     uv build
     uv publish
 
+# Build documentation
+docs-build:
+    uv run mkdocs build
+
+# Serve documentation locally with live reload
+docs-serve:
+    uv run mkdocs serve
+
+# Deploy documentation to GitHub Pages
+docs-deploy:
+    uv run mkdocs gh-deploy --force
+
 # Clean build artifacts and cache
 clean:
-    rm -rf dist/ htmlcov/ .pytest_cache/ .ruff_cache/
+    rm -rf dist/ htmlcov/ .pytest_cache/ .ruff_cache/ site/
     find . -type d -name "__pycache__" -exec rm -rf {} +
     find . -type f -name "*.pyc" -delete
 

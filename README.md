@@ -74,4 +74,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [polars](https://pola.rs/) for the amazing DataFrame library.
 - [Gurobi](https://www.gurobi.com/) for the optimization solver.
 - [Ortools](https://developers.google.com/optimization/math_opt) for the optimization solver.
-- [great-docs](https://github.com/rich-iannone/great-docs) for generating the docs.

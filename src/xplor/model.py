@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 import polars as pl
 
@@ -9,22 +9,34 @@ from xplor._utils import parse_into_expr, series_to_df
 from xplor.types import VarType
 
 if TYPE_CHECKING:
-    import gurobipy as gp
-    from ortools.math_opt.python import mathopt
-
     from xplor.exprs import ConstrExpr
     from xplor.exprs.obj import ExpressionRepr
 
+# Type variable for expression terms (backend-specific)
+ExpressionType = TypeVar("ExpressionType")
 
-class XplorModel(ABC):
+# Type variable for the underlying solver model (backend-specific)
+ModelType = TypeVar("ModelType")
+
+
+class XplorModel(ABC, Generic[ModelType, ExpressionType]):
     """Abstract base class for all Xplor optimization model wrappers.
 
     Defines the core interface for adding variables and constraints
-    to the underlying optimization model (e.g., MathOpt, Gurobi, etc.).
+    to the underlying optimization model (e.g., MathOpt, Gurobi, Hexaly).
+
+    Type Parameters
+    ----------------
+    ObjTermsType
+        The type of objective expression terms used by the backend
+        (e.g., gp.LinExpr for Gurobi, LinearSum for MathOpt).
+    ModelType
+        The type of the underlying solver model object
+        (e.g., gp.Model for Gurobi, mathopt.Model for MathOpt).
 
     Attributes
     ----------
-    model : gurobipy.Model | mathopt.Model
+    model : ModelType
         The instantiated underlying solver model object.
     vars : dict[str, pl.Series]
         A dictionary storing Polars Series of optimization variables,
@@ -35,20 +47,21 @@ class XplorModel(ABC):
 
     """
 
-    def __init__(self, model: gp.Model | mathopt.Model) -> None:
+    model: ModelType
+
+    def __init__(self, model: ModelType) -> None:
         """Initialize the model wrapper.
 
         Parameters
         ----------
-        model : gurobipy.Model | mathopt.Model
+        model : ModelType
             The instantiated underlying solver model object.
 
         """
         self.model = model
         self.vars: dict[str, pl.Series] = {}
         self.var_types: dict[str, VarType] = {}
-
-        self._objs: list = []
+        self._priority_obj_terms: dict[int, ExpressionType] = {}
 
     def add_vars(
         self,
@@ -59,6 +72,7 @@ class XplorModel(ABC):
         obj: float | str | pl.Expr = 0.0,
         indices: pl.Expr | list[str] | None = None,
         vtype: VarType | None = None,
+        priority: int = 0,
     ) -> pl.Expr:
         """Define and return a Var expression for optimization variables.
 
@@ -84,6 +98,11 @@ class XplorModel(ABC):
             Used to format the internal variable names (e.g., 'x[1,2]').
         vtype: VarType | None, default VarType.CONTINUOUS
             The type of the variable (CONTINUOUS, INTEGER, or BINARY).
+        priority: int, default 0
+            Multi-objective optimization priority. Higher priority numbers are optimized
+            FIRST (priority 2 before priority 1 before priority 0). All objectives with
+            the same priority are combined into a single weighted sum. Currently only
+            supported by the Gurobi backend.
 
         Returns
         -------
@@ -125,7 +144,7 @@ class XplorModel(ABC):
                 parse_into_expr(obj).alias("obj"),
                 pl.format(f"{name}[{{}}]", indices).alias("name"),
             ],
-            lambda s: self._add_vars(series_to_df(s), name=name, vtype=vtype),
+            lambda s: self._add_vars(series_to_df(s), name=name, vtype=vtype, priority=priority),
             return_dtype=pl.Object,
         ).alias(name)
 
@@ -195,34 +214,91 @@ class XplorModel(ABC):
             assert name not in named_constr_exprs, f"Duplicated name for constraint {name}"
             named_constr_exprs[name] = expr
 
-        # We iterate over the constraints expressions,
-        # if the expression has multiple outputs (ex: xplor.var("start", "end") == 1)
-        # we need to run it separatly
-        # For all the other constraints expressions we can compute them in one `select` and one `rows`
-        # constrs_repr_d
+        # Process multi-output and single-output constraints separately
         exprs: list[pl.Expr] = []
         constrs_repr_d: dict[str, ExpressionRepr] = {}
+
         for name, expr in named_constr_exprs.items():
             if expr.meta.has_multiple_outputs():
-                df_constrs = df.select(expr)
-                for series in df_constrs.iter_columns():
-                    indices_series = (
-                        series.to_frame().select(pl.row_index())
-                        if indices is None
-                        else df.select(indices)
-                    ).to_series()
-                    for index, tmp_constr in zip(indices_series, series, strict=True):
-                        self._add_constr(tmp_constr, name=f"{series.name}[{index}]")
+                self._process_multi_output_constraint(df, expr, indices)
             else:
                 constrs_repr_d[name], exprs = expr.parse(exprs)
+        if constrs_repr_d:
+            self._process_single_output_constraints(df, constrs_repr_d, exprs, indices)
 
-        if len(constrs_repr_d):
-            df_constrs = df.select([expr.alias(str(i)) for i, expr in enumerate(exprs)])
-            indices_series = (
-                df_constrs.select(pl.row_index()) if indices is None else df.select(indices)
-            ).to_series()
-            self._add_constrs(df_constrs, **constrs_repr_d, indices=indices_series)
         return df
+
+    def _process_multi_output_constraint(
+        self, df: pl.DataFrame, expr: ConstrExpr, indices: pl.Expr | None
+    ) -> None:
+        """Process constraints with multiple outputs.
+
+        Parameters
+        ----------
+        df : pl.DataFrame
+            The DataFrame used to create the constraints
+        expr : ConstrExpr
+            The constraint expression with multiple outputs
+        indices : pl.Expr | None
+            Optional indices for constraint naming
+
+        """
+        df_constrs = df.select(expr)
+        for series in df_constrs.iter_columns():
+            indices_series = self._get_indices_series(df, series, indices)
+            for index, tmp_constr in zip(indices_series, series, strict=True):
+                self._add_constr(tmp_constr, name=f"{series.name}[{index}]")
+
+    def _process_single_output_constraints(
+        self,
+        df: pl.DataFrame,
+        constrs_repr_d: dict[str, ExpressionRepr],
+        exprs: list[pl.Expr],
+        indices: pl.Expr | None,
+    ) -> None:
+        """Process constraints with single outputs.
+
+        Parameters
+        ----------
+        df : pl.DataFrame
+            The DataFrame used to create the constraints
+        constrs_repr_d : dict[str, ExpressionRepr]
+            Dictionary mapping constraint names to their representations
+        exprs : list[pl.Expr]
+            List of Polars expressions to evaluate
+        indices : pl.Expr | None
+            Optional indices for constraint naming
+
+        """
+        df_constrs = df.select([expr.alias(str(i)) for i, expr in enumerate(exprs)])
+        indices_series = (
+            df_constrs.select(pl.row_index()) if indices is None else df.select(indices)
+        ).to_series()
+        self._add_constrs(df_constrs, **constrs_repr_d, indices=indices_series)
+
+    def _get_indices_series(
+        self, df: pl.DataFrame, series: pl.Series, indices: pl.Expr | None
+    ) -> pl.Series:
+        """Get the indices series for constraint naming.
+
+        Parameters
+        ----------
+        df : pl.DataFrame
+            The DataFrame used to create the constraints
+        series : pl.Series
+            The constraint series
+        indices : pl.Expr | None
+            Optional indices expression
+
+        Returns
+        -------
+        pl.Series
+            The indices series for naming
+
+        """
+        if indices is None:
+            return series.to_frame().select(pl.row_index()).to_series()
+        return df.select(indices).to_series()
 
     @abstractmethod
     def _add_constr(self, tmp_constr: Any, name: str) -> None:
@@ -316,8 +392,10 @@ class XplorModel(ABC):
         df: pl.DataFrame,
         name: str,
         vtype: VarType = VarType.CONTINUOUS,
+        priority: int = 0,
     ) -> pl.Series:
         """Return a series of variables.
 
         `df` should contains columns: ["lb", "ub", "obj, "name"].
+        `priority` indicates the optimization priority (higher values optimized first).
         """
