@@ -32,15 +32,14 @@ prek:
 build:
     uv build
 
-# Bump version, commit, push and publish to PyPI (usage: just bump patch|minor|major)
+# Bump version, commit, tag and push (GitHub Actions will publish to PyPI) (usage: just bump patch|minor|major)
 bump type:
     just clean
     uv version --bump {{type}}
     git add pyproject.toml uv.lock
     git commit -m "bump to $(uv version --short)"
-    git push
-    uv build
-    uv publish
+    git tag "v$(uv version --short)"
+    git push && git push --tags
 
 # Build documentation
 docs-build:
