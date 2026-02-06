@@ -1,22 +1,27 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import polars as pl
+from hexaly.modeler import HxExpression
 from hexaly.optimizer import HexalyOptimizer, HxModel, HxSolution, HxSolutionStatus
 
 from xplor.model import XplorModel
 from xplor.types import VarType, cast_to_dtypes
 
-if TYPE_CHECKING:
-    from hexaly.modeler import HxExpression
 
-
-class XplorHexaly(XplorModel):
+class XplorHexaly(XplorModel[HxModel, HxExpression]):
     """Xplor wrapper for the Hexaly solver.
 
     This class extends `XplorModel` to provide an interface for building
     and solving optimization problems using Hexaly.
+
+    Type Parameters
+    ----------------
+    ModelType : HxModel
+        The Hexaly model type.
+    ExpressionType : HxExpression
+        Stores objective terms as Hexaly HxExpression objects.
 
     Attributes
     ----------
@@ -28,7 +33,6 @@ class XplorHexaly(XplorModel):
 
     optimizer: HexalyOptimizer
     model: HxModel
-    _objective_expr: HxExpression | None = None  # To accumulate objective terms
 
     def __init__(self, optimizer: HexalyOptimizer | None = None) -> None:  # Updated type hint
         """Initialize the XplorHexaly model wrapper.
@@ -42,13 +46,13 @@ class XplorHexaly(XplorModel):
         """
         self.optimizer = HexalyOptimizer() if optimizer is None else optimizer
         super().__init__(model=self.optimizer.model)
-        self._objective_expr = None
 
     def _add_vars(
         self,
         df: pl.DataFrame,
         name: str,
         vtype: VarType = VarType.CONTINUOUS,
+        priority: int = 0,
     ) -> pl.Series:
         """Return a series of Hexaly variables.
 
@@ -62,6 +66,8 @@ class XplorHexaly(XplorModel):
             The base name for the variables.
         vtype : VarType, default VarType.CONTINUOUS
             The type of the variable.
+        priority : int, default 0
+            Multi-objective optimization priority (higher values optimized first).
 
         Returns
         -------
@@ -69,8 +75,8 @@ class XplorHexaly(XplorModel):
             A Polars Object Series containing the created Hexaly variable objects.
 
         """
-        hexaly_vars: list[HxExpression] = []  # Updated type hint
-        current_objective_terms: list[HxExpression] = []  # Updated type hint
+        hexaly_vars: list[HxExpression] = []
+        current_objective_terms: list[HxExpression] = []
 
         match vtype:
             case VarType.CONTINUOUS:
@@ -90,17 +96,15 @@ class XplorHexaly(XplorModel):
         self.var_types[name] = vtype
         self.vars[name] = pl.Series(hexaly_vars, dtype=pl.Object)
 
+        # Accumulate objective coefficients for this priority level
         if current_objective_terms:
-            # If there's an existing objective, add to it, otherwise start new
-            new_objective_part = self.model.sum(current_objective_terms)
-            if self._objective_expr is None:
-                self._objective_expr = new_objective_part
+            obj_expr = self.model.sum(current_objective_terms)
+            if priority not in self._priority_obj_terms:
+                self._priority_obj_terms[priority] = obj_expr
             else:
-                self._objective_expr = self.model.sum(self._objective_expr, new_objective_part)
-
-            # Re-set the objective if it already exists, or set for the first time
-            # Hexaly's model.minimize() and maximize() automatically handle re-setting
-            self.model.minimize(self._objective_expr)  # Assuming minimization by default for Xplor
+                self._priority_obj_terms[priority] = self.model.sum(
+                    self._priority_obj_terms[priority], obj_expr
+                )
 
         return self.vars[name]
 
@@ -120,9 +124,20 @@ class XplorHexaly(XplorModel):
             Hexaly's default time limit is used.
 
         """
-        if self._objective_expr is None:
+        # Build multi-objective functions from accumulated terms
+        # NOTE: Hexaly supports hierarchical optimization via multiple minimize/maximize calls
+        if self._priority_obj_terms:
+            # Sort priorities descending (highest user priority first)
+            user_priorities = sorted(self._priority_obj_terms.keys(), reverse=True)
+
+            for user_priority in user_priorities:
+                # Hexaly supports hierarchical objectives via multiple minimize calls
+                # The first call has the highest priority
+                self.model.minimize(self._priority_obj_terms[user_priority])
+        else:
             msg = "No objective function defined for the Hexaly model."
             raise Exception(msg)
+
         if time_limit is not None:
             self.optimizer.param.set_time_limit(time_limit)
 
@@ -144,6 +159,8 @@ class XplorHexaly(XplorModel):
         Exception
             If the model has not been optimized successfully or if no objective
             is defined.
+        ValueError
+            If the model has multiple objectives. Use get_multi_objective_values() instead.
 
         """
         sol: HxSolution = self.optimizer.get_solution()
@@ -152,11 +169,57 @@ class XplorHexaly(XplorModel):
             msg = f"The Hexaly model status is {status}."
             raise Exception(msg)
 
-        if self._objective_expr is not None:
-            return self._objective_expr.value
-        else:
+        if not self._priority_obj_terms:
             msg = "At least one objective is required in the model."
             raise Exception(msg)
+
+        # Check if model has multiple objectives
+        if len(self._priority_obj_terms) > 1:
+            msg = (
+                f"Model has {len(self._priority_obj_terms)} objectives. "
+                "Use get_multi_objective_values() to retrieve all objective values."
+            )
+            raise ValueError(msg)
+
+        # Return the single objective value
+        priority = next(iter(self._priority_obj_terms.keys()))
+        return self._priority_obj_terms[priority].value
+
+    def get_multi_objective_values(self) -> dict[int, float]:
+        """Return all objective values from a multi-objective Hexaly model.
+
+        Returns a dictionary mapping user priority levels to their objective values.
+
+        Returns
+        -------
+        dict[int, float]
+            Dictionary mapping priority level to objective value.
+            Keys are user priority levels (higher priority = higher number).
+            Values are the objective values for each priority.
+
+        Examples
+        --------
+        >>> xmodel.optimize()
+        >>> obj_values = xmodel.get_multi_objective_values()
+        >>> print(obj_values)
+        {2: -150.0, 1: 50.0, 0: 10.0}  # priority -> objective value
+
+        """
+        sol: HxSolution = self.optimizer.get_solution()
+        status: type[HxSolutionStatus] = sol.get_status()
+        if status in (HxSolutionStatus.INCONSISTENT, HxSolutionStatus.INFEASIBLE):
+            msg = f"The Hexaly model status is {status}."
+            raise Exception(msg)
+
+        if not self._priority_obj_terms:
+            return {}
+
+        # Return all objective values by priority
+        result = {}
+        for priority, obj_expr in self._priority_obj_terms.items():
+            result[priority] = obj_expr.value
+
+        return result
 
     def read_values(self, name: pl.Expr) -> pl.Expr:
         """Read the value of an optimization variable.
