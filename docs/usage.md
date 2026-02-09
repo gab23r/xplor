@@ -42,7 +42,6 @@ Let's define a set of variables with unique lower bounds (`lb`), upper bounds (`
 ```python
 import polars as pl
 import xplor
-from xplor.types import VarType
 
 data = pl.DataFrame({
     "product": ["P1", "P2"],

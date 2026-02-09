@@ -28,12 +28,10 @@ class ExpressionRepr(str):
     evaluated dynamically for each row of a Polars DataFrame.
 
     Example usage:
-    ```python
     >>> expr_str = ExpressionRepr("row[0] * 2 + row[1]")
     >>> row = (3, 5)
     >>> expr_str.evaluate(row)
     11
-    ```
     """
 
     def evaluate(self, row: tuple[float | int, ...]) -> Any:

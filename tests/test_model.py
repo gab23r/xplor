@@ -6,23 +6,23 @@ import xplor
 from xplor.gurobi import XplorGurobi
 from xplor.mathopt import XplorMathOpt
 from xplor.model import XplorModel
-from xplor.types import VarType
+from xplor.types import VariableType
 
 
 @pytest.mark.parametrize(
     ("ModelClass", "solver_type", "vtype", "obj_value", "var_value", "dtype"),
     [
-        (XplorGurobi, None, VarType.CONTINUOUS, -2.5, [0.5, 1.0], pl.Float64),
-        # (XplorHexaly, None, VarType.CONTINUOUS, -2.5, [0.5, 1.0], pl.Float64),
+        (XplorGurobi, None, "CONTINUOUS", -2.5, [0.5, 1.0], pl.Float64),
+        # (XplorHexaly, None, "CONTINUOUS", -2.5, [0.5, 1.0], pl.Float64),
         (XplorMathOpt, mathopt.SolverType.GLOP, None, -2.5, [0.5, 1.0], pl.Float64),
-        (XplorMathOpt, mathopt.SolverType.CP_SAT, VarType.INTEGER, -2.0, [0, 1], pl.Int32),
-        (XplorMathOpt, mathopt.SolverType.CP_SAT, VarType.BINARY, -2.0, [False, True], pl.Boolean),
+        (XplorMathOpt, mathopt.SolverType.CP_SAT, "INTEGER", -2.0, [0, 1], pl.Int32),
+        (XplorMathOpt, mathopt.SolverType.CP_SAT, "BINARY", -2.0, [False, True], pl.Boolean),
     ],
 )
 def test_linear_optimization_problem(
     ModelClass: type[XplorModel],
     solver_type: mathopt.SolverType | None,
-    vtype: VarType | None,
+    vtype: VariableType,
     obj_value: float,
     var_value: list[float],
     dtype: pl.DataType,

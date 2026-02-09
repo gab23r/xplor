@@ -1,18 +1,22 @@
 from __future__ import annotations
 
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 import gurobipy as gp
 import polars as pl
 
+from xplor.gurobi.var import _ProxyGurobiVarExpr
 from xplor.model import XplorModel
-from xplor.types import VarType, cast_to_dtypes
+from xplor.types import cast_to_dtypes
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from gurobipy import TempLConstr
 
 
-class XplorGurobi(XplorModel[gp.Model, gp.LinExpr]):
+class XplorGurobi(XplorModel[gp.Model, gp.Var, gp.LinExpr]):
     """Xplor wrapper for the Gurobi solver.
 
     This class provides a specialized wrapper for Gurobi, translating XplorModel's
@@ -30,12 +34,6 @@ class XplorGurobi(XplorModel[gp.Model, gp.LinExpr]):
     ----------
     model : gp.Model
         The instantiated Gurobi model object.
-    vars : dict[str, pl.Series]
-        A dictionary storing Polars Series of optimization variables,
-        indexed by name.
-    var_types : dict[str, VarType]
-        A dictionary storing the `VarType` (CONTINUOUS, INTEGER, BINARY)
-        for each variable series, indexed by its base name.
 
     """
 
@@ -55,61 +53,49 @@ class XplorGurobi(XplorModel[gp.Model, gp.LinExpr]):
         model = gp.Model() if model is None else model
         super().__init__(model=model)
 
-    def _add_vars(
+    def _add_continuous_vars(
         self,
-        df: pl.DataFrame,
-        name: str,
-        vtype: VarType = VarType.CONTINUOUS,
-        priority: int = 0,
-    ) -> pl.Series:
-        """Create Gurobi variables and accumulate objective coefficients by priority.
-
-        For multi-objective optimization, objective coefficients are not passed to
-        addMVar. Instead, they are accumulated by priority level and built into
-        objective expressions in optimize() using setObjectiveN().
-
-        Parameters
-        ----------
-        df : pl.DataFrame
-            A DataFrame containing the columns ["lb", "ub", "obj", "name"].
-        name : str
-            The base name for the variables.
-        vtype : VarType, default VarType.CONTINUOUS
-            The type of the variable.
-        priority : int, default 0
-            Multi-objective optimization priority (higher values optimized first).
-
-        Returns
-        -------
-        pl.Series
-            A Polars Object Series containing the created Gurobi variable objects.
-
-        """
-        self.var_types[name] = vtype
-
-        # Create variables WITHOUT obj parameter (required for multi-objective)
+        names: list[str],
+        lb: list[float] | None,
+        ub: list[float] | None,
+    ) -> list[gp.Var]:
         mvar = self.model.addMVar(
-            df.height,
-            vtype=getattr(gp.GRB, vtype),
-            lb=df["lb"].to_numpy() if df["lb"].dtype != pl.Null else None,
-            ub=df["ub"].to_numpy() if df["ub"].dtype != pl.Null else None,
-            name=df["name"].to_list(),
-        )
-
-        # Store variables as Series
-        self.vars[name] = pl.Series(mvar.tolist(), dtype=pl.Object())
-
-        # Accumulate objective coefficients for this priority level
-        # Only store non-zero coefficients to avoid unnecessary terms
-        if df.filter(pl.col("obj") != 0).height:
-            obj_expr = gp.LinExpr(df["obj"].to_list(), mvar.tolist())
-            if priority not in self._priority_obj_terms:
-                self._priority_obj_terms[priority] = obj_expr
-            else:
-                self._priority_obj_terms[priority] += obj_expr
-
+            len(names),
+            lb=lb,
+            ub=ub,
+            vtype=gp.GRB.CONTINUOUS,
+            name=names,
+        )  # ty:ignore[no-matching-overload]
         self.model.update()
-        return self.vars[name]
+        return mvar.tolist()
+
+    def _add_integer_vars(
+        self,
+        names: list[str],
+        lb: list[float] | None,
+        ub: list[float] | None,
+    ) -> list[gp.Var]:
+        mvar = self.model.addMVar(
+            len(names),
+            vtype=gp.GRB.INTEGER,
+            lb=lb,
+            ub=ub,
+            name=names,
+        )  # ty:ignore[no-matching-overload]
+        self.model.update()
+        return mvar.tolist()
+
+    def _add_binary_vars(
+        self,
+        names: list[str],
+    ) -> list[gp.Var]:
+        mvar = self.model.addMVar(
+            len(names),
+            vtype=gp.GRB.BINARY,
+            name=names,
+        )
+        self.model.update()
+        return mvar.tolist()
 
     def _add_constr(self, tmp_constr: TempLConstr, name: str) -> None:
         self.model.addLConstr(tmp_constr, name=name)
@@ -232,6 +218,30 @@ class XplorGurobi(XplorModel[gp.Model, gp.LinExpr]):
 
         return name.map_batches(
             lambda d: cast_to_dtypes(
-                pl.Series([_extract(v) for v in d]), self.var_types.get(d.name, VarType.CONTINUOUS)
+                pl.Series([_extract(v) for v in d]), self.var_types.get(d.name, "CONTINUOUS")
             )
         )
+
+    def _linear_expr(self, arg1: Sequence[float], arg2: Sequence[gp.Var]) -> gp.LinExpr:
+        return gp.LinExpr(arg1, arg2)
+
+    @cached_property
+    def var(self) -> _ProxyGurobiVarExpr:
+        """The entry point for creating custom expression objects (VarExpr) that represent
+        variables or columns used within a composite Polars expression chain.
+
+        This proxy acts similarly to `polars.col()`, allowing you to reference
+        optimization variables (created via `xmodel.add_vars()`) or standard DataFrame columns
+        in a solver-compatible expression.
+
+        The resulting expression object can be combined with standard Polars expressions
+        to form constraints or objective function components.
+
+        Examples
+        --------
+        >>> xmodel = XplorMathOpt()
+        >>> df = df.with_columns(xmodel.add_vars("production"))
+        >>> df.select(total_cost = xmodel.var("production") * pl.col("cost"))
+
+        """
+        return _ProxyGurobiVarExpr()

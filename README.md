@@ -32,14 +32,16 @@ Install the base package, which provides the core Polars integration and abstrac
 
 xplor comes with few dependencies. To use a specific solver you need to add optional dependency group.
 ```bash
-pip install xplor[gurobi, ortools]
+pip install xplor[gurobi, ortools, cplex]
 ```
 or install all of them
 ```bash
 pip install xplor[all]
 ```
 
-> **Note:** Gurobi requires a a valid license (academic or commercial) to run. Please follow the [official Gurobi documentation](https://docs.gurobi.com/current/) for setup instructions.
+> **Note:** Gurobi requires a valid license (academic or commercial) to run. Please follow the [official Gurobi documentation](https://docs.gurobi.com/current/) for setup instructions.
+>
+> **Note:** CPLEX requires a valid license (academic or commercial) to run. Please follow the [official CPLEX documentation](https://ibmdecisionoptimization.github.io/docplex-doc/) for setup instructions.
 
 ## Quick Start
 
@@ -54,11 +56,12 @@ Have a look to the [documentation](https://gab23r.github.io/xplor/usage.html).
 * ✅ **Gurobi backend**
 * ✅ **OR-Tools backend**
 * ✅ **Hexaly backend**
+* ✅ **CPLEX backend** (via docplex)
 
 ### Planned Features
 
-* 🚧 Support for additional solvers (CPLEX, ...).
 * 🚧 Support for non-linear expressions.
+* 🚧 Support for additional solvers (HiGHS, ...).
 
 ## Contributing
 
@@ -73,4 +76,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [gurobipy-pandas](https://github.com/Gurobi/gurobipy-pandas) for inspiration.
 - [polars](https://pola.rs/) for the amazing DataFrame library.
 - [Gurobi](https://www.gurobi.com/) for the optimization solver.
-- [Ortools](https://developers.google.com/optimization/math_opt) for the optimization solver.
+- [OR-Tools](https://developers.google.com/optimization/math_opt) for the optimization solver.
+- [IBM CPLEX](https://ibmdecisionoptimization.github.io/docplex-doc/) for the optimization solver.

@@ -1,6 +1,6 @@
 [project]
 name = "xplor"
-version = "0.3.4"
+version = "0.4.0"
 description = "A unified framework for Operation Research modeling with polars"
 readme = "README.md"
 authors = [
@@ -9,13 +9,14 @@ authors = [
 license = { text = "MIT" }
 requires-python = ">=3.11"
 dependencies = [
-    "polars>=v1.35",
+    "polars>=1.36.1",
 ]
 keywords = [
     "optimization",
     "polars",
     "gurobi",
     "mathopt",
+    "cplex",
     "operations research",
 ]
 [project.urls]
@@ -27,7 +28,6 @@ Documentation = "https://gab23r.github.io/xplor/"
 [project.optional-dependencies]
 gurobi = [
     "gurobipy>=11.0.3",
-    "numpy>=2.1.2",
 ]
 ortools = [
     "ortools>=9.11.4210",
@@ -35,10 +35,16 @@ ortools = [
 hexaly = [
     "hexaly>=14.0.20251203",
 ]
+cplex = [
+    # Note: CPLEX does not yet support Python 3.13
+    "docplex>=2.27.239",
+    "cplex>=22.1.2.0",
+]
 all = [
     "xplor[gurobi]",
     "xplor[ortools]",
     "xplor[hexaly]",
+    "xplor[cplex]",
 ]
 
 [build-system]
