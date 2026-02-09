@@ -33,7 +33,7 @@ jobs:
 
       - name: Install the project (Python 3.13 - without CPLEX)
         if: ${{ matrix.python-version == '3.13' }}
-        run: uv sync --extra gurobi --extra ortools --extra hexaly
+        run: uv sync --extra gurobi --extra ortools --extra hexaly --no-default-groups --dev
 
       - name: Install the project (Python 3.11/3.12 - with all extras)
         if: ${{ matrix.python-version != '3.13' }}
