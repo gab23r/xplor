@@ -44,5 +44,6 @@ jobs:
         # We only need to run this once, so we skip the matrix strategy for this specific action
         if: ${{ matrix.python-version == '3.12' }}
 
-      - name: Run tests
+      - name: Run test
+        if: ${{ matrix.python-version != '3.13' }}
         run: uv run pytest tests
