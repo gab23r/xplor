@@ -72,7 +72,8 @@ class XplorModel(ABC, Generic[ModelType, VarType, ExpressionType]):
         The resulting expression object can be combined with standard Polars expressions
         to form constraints or objective function components.
 
-        Examples:
+        Examples
+        --------
         >>> xmodel = XplorMathOpt()
         >>> df = df.with_columns(xmodel.add_vars("production"))
         >>> df.select(total_cost = xmodel.var("production") * pl.col("cost"))

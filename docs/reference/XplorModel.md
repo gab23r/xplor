@@ -1,3 +1,0 @@
-# XplorModel
-
-::: xplor.XplorModel
