@@ -36,9 +36,9 @@ hexaly = [
     "hexaly>=14.0.20251203",
 ]
 cplex = [
+    # Note: CPLEX does not yet support Python 3.13
     "docplex>=2.27.239",
     "cplex>=22.1.2.0",
-
 ]
 all = [
     "xplor[gurobi]",

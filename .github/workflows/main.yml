@@ -31,8 +31,13 @@ jobs:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
 
-      - name: Install the project
-        run: uv sync
+      - name: Install the project (Python 3.13 - without CPLEX)
+        if: ${{ matrix.python-version == '3.13' }}
+        run: uv sync --extra gurobi --extra ortools --extra hexaly
+
+      - name: Install the project (Python 3.11/3.12 - with all extras)
+        if: ${{ matrix.python-version != '3.13' }}
+        run: uv sync --all-extras
 
       - uses: j178/prek-action@v1
         # Run on the newest Python version for pre-commit, which is fine since pre-commit is isolated

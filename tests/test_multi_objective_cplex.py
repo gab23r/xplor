@@ -1,10 +1,17 @@
 """Tests for multi-objective optimization support (CPLEX backend)."""
 
+import sys
+
 import polars as pl
 import pytest
 
 import xplor
 from xplor.cplex import XplorCplex
+
+# Skip all CPLEX tests on Python 3.13 (CPLEX not yet compatible)
+pytestmark = pytest.mark.skipif(
+    sys.version_info >= (3, 13), reason="CPLEX not compatible with Python 3.13"
+)
 
 
 def test_backward_compatible_default_priority():
