@@ -42,13 +42,13 @@ class VarExpr(ObjExpr):
         """Create an object namespace of all var expressions that modify expression names."""
         return VarExprNameNameSpace(self)
 
-    def __eq__(self, other: pl.Expr | float) -> ConstrExpr:  # type: ignore[override]
+    def __eq__(self, other: pl.Expr | float) -> ConstrExpr:
         return ConstrExpr.from_obj_expr(self._append_node("__eq__", other))
 
-    def __le__(self, other: pl.Expr | float) -> ConstrExpr:  # ty:ignore[invalid-method-override]
+    def __le__(self, other: pl.Expr | float) -> ConstrExpr:
         return ConstrExpr.from_obj_expr(self._append_node("__le__", other))
 
-    def __ge__(self, other: pl.Expr | float) -> ConstrExpr:  # ty:ignore[invalid-method-override]
+    def __ge__(self, other: pl.Expr | float) -> ConstrExpr:
         return ConstrExpr.from_obj_expr(self._append_node("__ge__", other))
 
 
