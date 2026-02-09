@@ -81,12 +81,9 @@ class _ProxyVarExpr:
     to form constraints or objective function components.
 
     Examples:
-    ```python
-
     >>> xmodel = XplorMathOpt()
     >>> df = df.with_columns(xmodel.add_vars("production"))
     >>> df.select(total_cost = xplor.var("production") * pl.col("cost"))
-    ```
 
     """
 

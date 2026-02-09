@@ -2,26 +2,22 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic
 
 import polars as pl
 
 from xplor._utils import parse_into_expr, series_to_df
 from xplor.exprs.var import _ProxyVarExpr
-from xplor.types import VarType
+from xplor.typing import ExpressionType, ModelType, VariableType, VarType
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from xplor.exprs import ConstrExpr
     from xplor.exprs.obj import ExpressionRepr
 
-# Type variable for expression terms (backend-specific)
-ExpressionType = TypeVar("ExpressionType")
 
-# Type variable for the underlying solver model (backend-specific)
-ModelType = TypeVar("ModelType")
-
-
-class XplorModel(ABC, Generic[ModelType, ExpressionType]):
+class XplorModel(ABC, Generic[ModelType, VarType, ExpressionType]):
     """Abstract base class for all Xplor optimization model wrappers.
 
     Defines the core interface for adding variables and constraints
@@ -43,9 +39,8 @@ class XplorModel(ABC, Generic[ModelType, ExpressionType]):
     vars : dict[str, pl.Series]
         A dictionary storing Polars Series of optimization variables,
         indexed by name.
-    var_types : dict[str, VarType]
-        A dictionary storing the `VarType` (CONTINUOUS, INTEGER, BINARY)
-        for each variable series, indexed by its base name.
+    var_types : dict[str, VariableType]
+        A dictionary storing the `VariableType` for each variable.
 
     """
 
@@ -62,7 +57,7 @@ class XplorModel(ABC, Generic[ModelType, ExpressionType]):
         """
         self.model = model
         self.vars: dict[str, pl.Series] = {}
-        self.var_types: dict[str, VarType] = {}
+        self.var_types: dict[str, VariableType] = {}
         self._priority_obj_terms: dict[int, ExpressionType] = {}
 
     @cached_property
@@ -91,9 +86,9 @@ class XplorModel(ABC, Generic[ModelType, ExpressionType]):
         *,
         lb: float | str | pl.Expr = 0.0,
         ub: float | str | pl.Expr | None = None,
-        obj: float | str | pl.Expr = 0.0,
+        obj: float | str | pl.Expr | None = None,
         indices: pl.Expr | list[str] | None = None,
-        vtype: VarType | None = None,
+        vtype: VariableType = "CONTINUOUS",
         priority: int = 0,
     ) -> pl.Expr:
         """Define and return a Var expression for optimization variables.
@@ -118,7 +113,7 @@ class XplorModel(ABC, Generic[ModelType, ExpressionType]):
         indices: pl.Expr | None, default pl.row_index()
             Keys (column names) that uniquely identify each variable instance.
             Used to format the internal variable names (e.g., 'x[1,2]').
-        vtype: VarType | None, default VarType.CONTINUOUS
+        vtype: VariableType
             The type of the variable (CONTINUOUS, INTEGER, or BINARY).
         priority: int, default 0
             Multi-objective optimization priority. Higher priority numbers are optimized
@@ -136,15 +131,14 @@ class XplorModel(ABC, Generic[ModelType, ExpressionType]):
         --------
         Assuming `xmodel` is an instance of a concrete class (`XplorGurobi`).
 
-        ```python
-        # 1. Basic variable creation using columns for bounds:
+        >>> # 1. Basic variable creation using columns for bounds:
         >>> data = pl.DataFrame({"max_limit": [10.0, 5.0]})
         >>> df = data.with_columns(
         ...     xmodel.add_vars("x", lb=0.0, ub=pl.col("max_limit"), obj=1.0)
         ... )
-        # df["x"] now contains gurobipy.Var or mathopt.Variable objects.
+        >>> # df["x"] now contains gurobipy.Var or mathopt.Variable objects.
 
-        # s2. Creating integer variables indexed by two columns:
+        >>> # s2. Creating integer variables indexed by two columns:
         >>> data = pl.DataFrame({"time": [1, 1, 2, 2], "resource": ["A", "B", "A", "B"]})
         >>> df = data.with_columns(
         ...     xmodel.add_vars(
@@ -153,12 +147,10 @@ class XplorModel(ABC, Generic[ModelType, ExpressionType]):
         ...         vtype=VarType.INTEGER,
         ...     )
         ... )
-        # Variable names will look like 'sched[1,A]', 'sched[1,B]', etc.
-        ```
+        >>> # Variable names will look like 'sched[1,A]', 'sched[1,B]', etc.
 
         """
         indices = pl.concat_str(pl.row_index() if indices is None else indices, separator=",")
-        vtype = VarType.CONTINUOUS if vtype is None else vtype
         return pl.map_batches(
             [
                 parse_into_expr(lb).alias("lb"),
@@ -166,7 +158,9 @@ class XplorModel(ABC, Generic[ModelType, ExpressionType]):
                 parse_into_expr(obj).alias("obj"),
                 pl.format(f"{name}[{{}}]", indices).alias("name"),
             ],
-            lambda s: self._add_vars(series_to_df(s), name=name, vtype=vtype, priority=priority),
+            lambda s: self._add_vars_wrapper(
+                series_to_df(s), name=name, vtype=vtype, priority=priority
+            ),
             return_dtype=pl.Object,
         ).alias(name)
 
@@ -217,7 +211,6 @@ class XplorModel(ABC, Generic[ModelType, ExpressionType]):
         --------
         Assuming `df` has been created and contains the variable Series `df["x"]`.
 
-        ```python
         >>> df.pipe(
         ...     xmodel.add_constrs,
                 max_per_item = xplor.var("x") <= pl.col("capacity"),
@@ -225,7 +218,6 @@ class XplorModel(ABC, Generic[ModelType, ExpressionType]):
                 indices=["product"]
         ... )
 
-        ```
 
         """
         if isinstance(indices, list):
@@ -323,6 +315,28 @@ class XplorModel(ABC, Generic[ModelType, ExpressionType]):
         return df.select(indices).to_series()
 
     @abstractmethod
+    def _add_continuous_vars(
+        self,
+        names: list[str],
+        lb: list[float] | None,
+        ub: list[float] | None,
+    ) -> list[VarType]: ...
+
+    @abstractmethod
+    def _add_integer_vars(
+        self,
+        names: list[str],
+        lb: list[float] | None,
+        ub: list[float] | None,
+    ) -> list[VarType]: ...
+
+    @abstractmethod
+    def _add_binary_vars(
+        self,
+        names: list[str],
+    ) -> list[VarType]: ...
+
+    @abstractmethod
     def _add_constr(self, tmp_constr: Any, name: str) -> None:
         pass
 
@@ -350,7 +364,6 @@ class XplorModel(ABC, Generic[ModelType, ExpressionType]):
         """
         # TODO: manage non linear constraint
         # https://github.com/gab23r/xplor/issues/1
-
         for row, index in zip(df.rows(), indices, strict=True):
             for name, constr_repr in constrs_repr.items():
                 self._add_constr(constr_repr.evaluate(row), name=f"{name}[{index}]")
@@ -408,12 +421,11 @@ class XplorModel(ABC, Generic[ModelType, ExpressionType]):
 
         """
 
-    @abstractmethod
-    def _add_vars(
+    def _add_vars_wrapper(
         self,
         df: pl.DataFrame,
         name: str,
-        vtype: VarType = VarType.CONTINUOUS,
+        vtype: VariableType = "CONTINUOUS",
         priority: int = 0,
     ) -> pl.Series:
         """Return a series of variables.
@@ -421,3 +433,32 @@ class XplorModel(ABC, Generic[ModelType, ExpressionType]):
         `df` should contains columns: ["lb", "ub", "obj, "name"].
         `priority` indicates the optimization priority (higher values optimized first).
         """
+        lb = df["lb"].to_list() if df["lb"].dtype != pl.Null else None
+        ub = df["ub"].to_list() if df["ub"].dtype != pl.Null else None
+        names = df["name"].to_list()
+
+        match vtype:
+            case "INTEGER":
+                vars_ = self._add_integer_vars(names, lb, ub)
+            case "BINARY":
+                vars_ = self._add_binary_vars(names)
+            case _:
+                vars_ = self._add_continuous_vars(names, lb, ub)
+
+        # Accumulate objective coefficients for this priority level
+        if df["obj"].dtype != pl.Null:
+            # Build linear expression: sum(coeff * var)
+            print(df["obj"].to_list(), vars_)
+            obj_expr = self._linear_expr(df["obj"].to_list(), vars_)
+
+            if priority not in self._priority_obj_terms:
+                self._priority_obj_terms[priority] = obj_expr
+            else:
+                self._priority_obj_terms[priority] += obj_expr  # ty:ignore[unsupported-operator]
+
+        self.vars[name] = pl.Series(vars_, dtype=pl.Object)
+        self.var_types[name] = vtype
+        return self.vars[name]
+
+    def _linear_expr(self, arg1: Sequence[float], arg2: Sequence[VarType]) -> ExpressionType:
+        return getattr(self.model, "sum", sum)(x * y for x, y in zip(arg1, arg2, strict=False))

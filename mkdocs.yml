@@ -42,10 +42,11 @@ nav:
   - API Reference:
       - Overview: reference/index.md
       - Classes:
+          - XplorModel: reference/XplorModel.md
           - XplorGurobi: reference/XplorGurobi.md
           - XplorMathOpt: reference/XplorMathOpt.md
           - XplorHexaly: reference/XplorHexaly.md
-          - VarType: reference/VarType.md
+          - XplorCplex: reference/XplorCplex.md
       - Functions:
           - var: reference/var.md
   - Contributing: contributing.md

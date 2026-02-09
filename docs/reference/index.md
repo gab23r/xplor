@@ -9,10 +9,8 @@ The main model classes that provide solver-specific implementations:
 - **[XplorGurobi](XplorGurobi.md)** - Gurobi solver backend
 - **[XplorMathOpt](XplorMathOpt.md)** - OR-Tools MathOpt backend
 - **[XplorHexaly](XplorHexaly.md)** - Hexaly solver backend
+- **[XplorCplex](XplorCplex.md)** - CPLEX solver backend (via docplex)
 
-## Types
-
-- **[VarType](VarType.md)** - Enumeration for variable types (CONTINUOUS, INTEGER, BINARY)
 
 ## Functions
 

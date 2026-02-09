@@ -1,3 +1,0 @@
-# VarType
-
-::: xplor.types.VarType

@@ -1,16 +1,22 @@
 from __future__ import annotations
 
-from typing import Any
+from itertools import zip_longest
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
-from ortools.math_opt.python import mathopt, parameters, result
-from ortools.math_opt.python.variables import LinearSum
+from ortools.math_opt.python import mathopt
+from ortools.math_opt.python.mathopt import Model
+from ortools.math_opt.python.parameters import SolverType
+from ortools.math_opt.python.variables import LinearSum, Variable
 
 from xplor.model import XplorModel
-from xplor.types import VarType, cast_to_dtypes
+from xplor.types import cast_to_dtypes
+
+if TYPE_CHECKING:
+    from ortools.math_opt.python.result import SolveResult
 
 
-class XplorMathOpt(XplorModel[mathopt.Model, LinearSum]):
+class XplorMathOpt(XplorModel[Model, Variable, LinearSum]):
     """Xplor wrapper for the OR-Tools MathOpt solver.
 
     This class extends `XplorModel` to provide an interface for building
@@ -18,110 +24,76 @@ class XplorMathOpt(XplorModel[mathopt.Model, LinearSum]):
 
     Type Parameters
     ----------------
-    ModelType : mathopt.Model
+    ModelType : Model
         The MathOpt model type.
     ExpressionType : LinearSum
         Stores objective terms as MathOpt LinearSum expression objects.
 
     Attributes
     ----------
-    model : mathopt.Model
+    model : Model
         The underlying OR-Tools MathOpt model instance.
-    vars : dict[str, pl.Series]
-        A dictionary storing Polars Series of optimization variables,
-        indexed by name.
-    var_types : dict[str, VarType]
-        A dictionary storing the `VarType` (CONTINUOUS, INTEGER, BINARY)
-        for each variable series, indexed by its base name.
-    result : result.SolveResult
+    result : SolveResult
         The result object returned by MathOpt after optimization.
         It contains solution status, objective value, and variable values.
 
     """
 
-    model: mathopt.Model
-    result: result.SolveResult
+    result: SolveResult
 
-    def __init__(self, model: mathopt.Model | None = None) -> None:
+    def __init__(self, model: Model | None = None) -> None:
         """Initialize the XplorMathOpt model wrapper.
 
         If no MathOpt model is provided, a new one is instantiated.
 
         Parameters
         ----------
-        model : mathopt.Model | None, default None
+        model : Model | None, default None
             An optional, pre-existing MathOpt model instance.
 
         """
-        model = mathopt.Model() if model is None else model
+        model = Model() if model is None else model
         super().__init__(model=model)
 
-    def _add_vars(
+    def _add_continuous_vars(
         self,
-        df: pl.DataFrame,
-        name: str,
-        vtype: VarType = VarType.CONTINUOUS,
-        priority: int = 0,
-    ) -> pl.Series:
-        """Return a series of MathOpt variables.
+        names: list[str],
+        lb: list[float] | None,
+        ub: list[float] | None,
+    ) -> list[Variable]:
+        return [
+            self.model.add_variable(lb=lb_, ub=ub_, name=name)
+            for lb_, ub_, name in zip_longest(lb or [], ub or [], names)
+        ]
 
-        Handles the conversion of Xplor's VarType to MathOpt's boolean `is_integer` flag.
-        For "BINARY" types, bounds are explicitly clipped to [0, 1] as a prerequisite for MathOpt.
+    def _add_integer_vars(
+        self,
+        names: list[str],
+        lb: list[float] | None,
+        ub: list[float] | None,
+    ) -> list[Variable]:
+        return [
+            self.model.add_variable(lb=lb_, ub=ub_, name=name, is_integer=True)
+            for lb_, ub_, name in zip_longest(lb or [], ub or [], names)
+        ]
 
-        Parameters
-        ----------
-        df : pl.DataFrame
-            A DataFrame containing the columns ["lb", "ub", "obj", "name"].
-        name : str
-            The base name for the variables.
-        vtype : VarType, default VarType.CONTINUOUS
-            The type of the variable.
-        priority : int, default 0
-            Multi-objective optimization priority (higher values optimized first).
-
-        Returns
-        -------
-        pl.Series
-            A Polars Object Series containing the created MathOpt variable objects.
-
-        """
-        # mathopt.Model don't super binary variable directly
-        if vtype == "BINARY":
-            df = df.with_columns(
-                pl.col("lb").fill_null(0).clip(lower_bound=0).fill_null(0),
-                pl.col("ub").fill_null(1).clip(upper_bound=1).fill_null(1),
-            )
-        self.var_types[name] = vtype
-        self.vars[name] = pl.Series(
-            [
-                self.model.add_variable(
-                    lb=lb_, ub=ub_, name=name_, is_integer=vtype != VarType.CONTINUOUS
-                )
-                for lb_, ub_, name_ in df.drop("obj").rows()
-            ],
-            dtype=pl.Object,
-        )
-        # Accumulate objective coefficients for this priority level
-        if df.select("obj").filter(pl.col("obj") != 0).height:
-            obj_expr = sum(w * v for w, v in zip(df["obj"], self.vars[name], strict=True))
-            if priority not in self._priority_obj_terms:
-                self._priority_obj_terms[priority] = obj_expr
-            else:
-                self._priority_obj_terms[priority] += obj_expr
-
-        return self.vars[name]
+    def _add_binary_vars(
+        self,
+        names: list[str],
+    ) -> list[Variable]:
+        return [self.model.add_variable(lb=0, ub=1, name=name, is_integer=True) for name in names]
 
     def _add_constr(self, tmp_constr: Any, name: str) -> None:
         self.model.add_linear_constraint(tmp_constr, name=name)
 
-    def optimize(self, solver_type: parameters.SolverType | None = None) -> None:  # ty:ignore[invalid-method-override]
+    def optimize(self, solver_type: SolverType | None = None) -> None:  # ty:ignore[invalid-method-override]
         """Solve the MathOpt model.
 
         Uses `mathopt.solve()` to solve the model and stores the result internally.
 
         Parameters
         ----------
-        solver_type : parameters.SolverType | None, default SolverType.GLOP
+        solver_type : SolverType | None, default SolverType.GLOP
             The specific OR-Tools solver to use (e.g., GLOP, GSCIP).
             Defaults to MathOpt's native GLOP solver if none is provided.
 
@@ -135,7 +107,7 @@ class XplorMathOpt(XplorModel[mathopt.Model, LinearSum]):
            >>> xmodel.optimize(solver_type=SolverType.GUROBI)
 
         """
-        solver_type = mathopt.SolverType.GLOP if solver_type is None else solver_type
+        solver_type = SolverType.GLOP if solver_type is None else solver_type
 
         # Build multi-objective functions from accumulated terms
         if self._priority_obj_terms:
@@ -272,6 +244,6 @@ class XplorMathOpt(XplorModel[mathopt.Model, LinearSum]):
         return name.map_batches(
             lambda d: cast_to_dtypes(
                 pl.Series([result_values.get(v) for v in d]),
-                self.var_types.get(d.name, VarType.CONTINUOUS),
+                self.var_types.get(d.name, "CONTINUOUS"),
             )
         )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from itertools import zip_longest
 from typing import Any
 
 import polars as pl
@@ -7,10 +8,10 @@ from hexaly.modeler import HxExpression
 from hexaly.optimizer import HexalyOptimizer, HxModel, HxSolution, HxSolutionStatus
 
 from xplor.model import XplorModel
-from xplor.types import VarType, cast_to_dtypes
+from xplor.types import cast_to_dtypes
 
 
-class XplorHexaly(XplorModel[HxModel, HxExpression]):
+class XplorHexaly(XplorModel[HxModel, HxExpression, HxExpression]):
     """Xplor wrapper for the Hexaly solver.
 
     This class extends `XplorModel` to provide an interface for building
@@ -44,66 +45,42 @@ class XplorHexaly(XplorModel[HxModel, HxExpression]):
         self.optimizer = HexalyOptimizer() if optimizer is None else optimizer
         super().__init__(model=self.optimizer.model)
 
-    def _add_vars(
+    def _add_continuous_vars(
         self,
-        df: pl.DataFrame,
-        name: str,
-        vtype: VarType = VarType.CONTINUOUS,
-        priority: int = 0,
-    ) -> pl.Series:
-        """Return a series of Hexaly variables.
-
-        Handles the conversion of Xplor's VarType to Hexaly's variable types.
-
-        Parameters
-        ----------
-        df : pl.DataFrame
-            A DataFrame containing the columns ["lb", "ub", "obj", "name"].
-        name : str
-            The base name for the variables.
-        vtype : VarType, default VarType.CONTINUOUS
-            The type of the variable.
-        priority : int, default 0
-            Multi-objective optimization priority (higher values optimized first).
-
-        Returns
-        -------
-        pl.Series
-            A Polars Object Series containing the created Hexaly variable objects.
-
-        """
-        hexaly_vars: list[HxExpression] = []
-        current_objective_terms: list[HxExpression] = []
-
-        match vtype:
-            case VarType.CONTINUOUS:
-                var_f = self.model.float
-            case VarType.INTEGER:
-                var_f = self.model.int
-            case VarType.BINARY:
-                var_f = lambda *_: self.model.bool()  # noqa: E731
-
-        for lb_, ub_, obj_, name_ in df.rows():
-            (var := var_f(lb_, ub_)).set_name(name_)
+        names: list[str],
+        lb: list[float] | None,
+        ub: list[float] | None,
+    ) -> list[HxExpression]:
+        hexaly_vars = []
+        for lb_, ub_, name in zip_longest(lb or [], ub or [], names):
+            (var := self.model.float(lb_, ub_)).set_name(name)
             hexaly_vars.append(var)
 
-            if obj_ != 0:
-                current_objective_terms.append(obj_ * var)
+        return hexaly_vars
 
-        self.var_types[name] = vtype
-        self.vars[name] = pl.Series(hexaly_vars, dtype=pl.Object)
+    def _add_integer_vars(
+        self,
+        names: list[str],
+        lb: list[float] | None,
+        ub: list[float] | None,
+    ) -> list[HxExpression]:
+        hexaly_vars = []
+        for lb_, ub_, name in zip_longest(lb or [], ub or [], names):
+            (var := self.model.int(lb_, ub_)).set_name(name)
+            hexaly_vars.append(var)
 
-        # Accumulate objective coefficients for this priority level
-        if current_objective_terms:
-            obj_expr = self.model.sum(current_objective_terms)
-            if priority not in self._priority_obj_terms:
-                self._priority_obj_terms[priority] = obj_expr
-            else:
-                self._priority_obj_terms[priority] = self.model.sum(
-                    self._priority_obj_terms[priority], obj_expr
-                )
+        return hexaly_vars
 
-        return self.vars[name]
+    def _add_binary_vars(
+        self,
+        names: list[str],
+    ) -> list[HxExpression]:
+        hexaly_vars = []
+        for name in names:
+            (var := self.model.bool()).set_name(name)
+            hexaly_vars.append(var)
+
+        return hexaly_vars
 
     def _add_constr(self, tmp_constr: HxExpression, name: str) -> None:
         tmp_constr.name = name
@@ -247,6 +224,6 @@ class XplorHexaly(XplorModel[HxModel, HxExpression]):
 
         return name.map_batches(
             lambda d: cast_to_dtypes(
-                pl.Series([_extract(v) for v in d]), self.var_types.get(d.name, VarType.CONTINUOUS)
+                pl.Series([_extract(v) for v in d]), self.var_types.get(d.name, "CONTINUOUS")
             )
         )
