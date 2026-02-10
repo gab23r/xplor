@@ -46,6 +46,7 @@ nav:
           - XplorMathOpt: reference/XplorMathOpt.md
           - XplorHexaly: reference/XplorHexaly.md
           - XplorCplex: reference/XplorCplex.md
+          - XplorCplexCP: reference/XplorCplexCP.md
   - Contributing: contributing.md
   - License: license.md
 
