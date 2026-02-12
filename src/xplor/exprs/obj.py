@@ -34,7 +34,7 @@ class ExpressionRepr(str):
     11
     """
 
-    def evaluate(self, row: tuple[float | int, ...]) -> Any:
+    def evaluate(self, row: tuple[Any, ...]) -> Any:
         """Evaluate the expression with `row`."""
         return eval(self, globals(), {"row": row})
 

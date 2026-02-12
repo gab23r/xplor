@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 import gurobipy as gp
 import polars as pl
 
-from xplor.gurobi.var import _ProxyGurobiVarExpr
+from xplor.gurobi.var import _ProxyGurobiVarExpr, to_mvar_or_mlinexpr
 from xplor.model import XplorModel
 from xplor.types import cast_to_dtypes
 
@@ -14,6 +14,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from gurobipy import TempLConstr
+
+    from xplor.exprs.obj import ExpressionRepr
 
 
 class XplorGurobi(XplorModel[gp.Model, gp.Var, gp.LinExpr]):
@@ -98,7 +100,26 @@ class XplorGurobi(XplorModel[gp.Model, gp.Var, gp.LinExpr]):
         return mvar.tolist()
 
     def _add_constr(self, tmp_constr: TempLConstr, name: str) -> None:
-        self.model.addLConstr(tmp_constr, name=name)
+        # Use addConstr instead of addLConstr to support both regular and matrix constraints
+        self.model.addConstr(tmp_constr, name=name)
+
+    def _add_constrs(
+        self,
+        df: pl.DataFrame,
+        /,
+        indices: pl.Series,
+        **constrs_repr: ExpressionRepr,
+    ) -> None:
+        """Add constraints.
+
+        Overrides base class to use MVar for full vectorization.
+        """
+        arrays = tuple(to_mvar_or_mlinexpr(df[col]) for col in df.columns)
+        # Evaluate each constraint expression vectorized - NO Python loops!
+        for name, constr_repr in constrs_repr.items():
+            # Scalar case (from aggregation like .sum()): single row
+            result = constr_repr.evaluate(df.row(0) if df.height == 1 else arrays)
+            self._add_constr(result, name=name)
 
     def optimize(self, **kwargs: Any) -> None:
         """Solve the Gurobi model.
