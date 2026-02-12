@@ -33,7 +33,7 @@ build:
     uv build
 
 # Bump version, commit, tag and push (GitHub Actions will publish to PyPI) (usage: just bump patch|minor|major)
-bump type:
+bump type='patch':
     just clean
     uv version --bump {{type}}
     git add pyproject.toml uv.lock
