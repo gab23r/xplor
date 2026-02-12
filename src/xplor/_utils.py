@@ -11,7 +11,9 @@ def expr_ends_with_alias(expr: pl.Expr) -> bool:
 
 
 def parse_into_expr(value: float | str | pl.Expr | None) -> pl.Expr:
-    if isinstance(value, float | int):
+    if isinstance(value, bool):
+        return pl.lit(value, dtype=pl.Boolean)
+    elif isinstance(value, float | int):
         return pl.lit(value, dtype=pl.Float64)
     elif value is None:
         return pl.lit(value, dtype=pl.Null)
