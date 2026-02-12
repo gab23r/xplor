@@ -116,14 +116,19 @@ class XplorGurobi(XplorModel[gp.Model, gp.Var, gp.LinExpr]):
         arrays: tuple = tuple(to_mvar_or_mlinexpr(s) for s in df.iter_columns())
         # Evaluate each constraint expression vectorized - NO Python loops!
         for name, constr_repr in constrs_repr.items():
-            # Handle gp.GenExpr case, for loop is needed
+            # Handle gp.GenExpr, gp.QuadExpr, and gp.NLExpr - these require row-by-row processing
             rhs_idx = constr_repr.extract_indices(side="rhs")
-            if rhs_idx and isinstance(df[:, rhs_idx[0]].first(ignore_nulls=True), gp.GenExpr):
-                for row, idx in zip(df.rows(), indices, strict=True):
-                    self._add_constr(constr_repr.evaluate(row), name=f"{name}[{idx}]")
-            else:
-                result = constr_repr.evaluate(df.row(0) if df.height == 1 else arrays)
-                self._add_constr(result, name=name)
+            if rhs_idx:
+                first_val = df[:, rhs_idx[0]].first(ignore_nulls=True)
+                # Check if RHS contains non-vectorizable expressions
+                if isinstance(first_val, (gp.GenExpr, gp.QuadExpr, gp.NLExpr)):
+                    for row, idx in zip(df.rows(), indices, strict=True):
+                        self._add_constr(constr_repr.evaluate(row), name=f"{name}[{idx}]")
+                    continue
+
+            # Vectorized path for linear constraints
+            result = constr_repr.evaluate(df.row(0) if df.height == 1 else arrays)
+            self._add_constr(result, name=name)
 
     def optimize(self, **kwargs: Any) -> None:
         """Solve the Gurobi model.
