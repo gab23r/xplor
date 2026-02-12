@@ -278,7 +278,7 @@ class XplorCplexCP(XplorModel[CpoModel, CpoVariable, CpoExpr]):
             )
             for s, e, d, len_val, o, n in df.with_columns(pl.col("optional").fill_null(False))
             .select("start", "end", "duration", "length", "optional", "var_name")
-            .iter_rows()
+            .rows()
         ]
 
         # Store interval variables

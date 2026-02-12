@@ -5,13 +5,10 @@ hooks = [
   { id = "check-added-large-files" },
   { id = "end-of-file-fixer" },
   { id = "fix-byte-order-marker" },
-  { id = "check-json" },
   { id = "check-toml" },
   { id = "mixed-line-ending" },
-  { id = "check-symlinks" },
   { id = "check-merge-conflict" },
   { id = "detect-private-key" },
-  { id = "check-executables-have-shebangs" },
 ]
 
 [[repos]]

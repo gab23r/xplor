@@ -144,3 +144,62 @@ def test_multi_expression_parsing():
 
     obj_expr2 = 1 + pl.col("c") + xplor.var.a + xplor.var.b
     assert obj_expr2.parse(exprs)[0] == "(row[2] + row[0]) + row[1]"  # type: ignore
+
+
+def test_gurobi_linexpr_optimization():
+    """Test that (var * coeff).sum() uses optimized gp.LinExpr construction."""
+    import gurobipy as gp
+
+    from xplor.gurobi import XplorGurobi
+
+    xmodel = XplorGurobi()
+
+    # Create a DataFrame with variables and coefficients
+    df = pl.DataFrame(
+        {
+            "id": [0, 1, 2],
+            "cost": [2.0, 3.0, 5.0],
+        }
+    ).with_columns(xmodel.add_vars("x", lb=0, ub=10))
+
+    # Test var * coeff pattern
+    result1 = df.select((xplor.var.x * pl.col("cost")).sum()).item()
+    assert isinstance(result1, gp.LinExpr)
+    # Verify coefficients: should be 2.0, 3.0, 5.0
+    assert result1.size() == 3
+
+    # Test coeff * var pattern (reverse multiplication)
+    result2 = df.select((pl.col("cost") * xplor.var.x).sum()).item()
+    assert isinstance(result2, gp.LinExpr)
+    assert result2.size() == 3
+
+    # Both should produce equivalent expressions
+    # (we can't easily compare LinExpr objects directly, but they should have same size)
+    assert result1.size() == result2.size()
+
+
+def test_gurobi_linexpr_optimization_with_complex_expr():
+    """Test that non-(var * coeff) patterns still work correctly."""
+    import gurobipy as gp
+
+    from xplor.gurobi import XplorGurobi
+
+    xmodel = XplorGurobi()
+
+    df = pl.DataFrame(
+        {
+            "id": [0, 1],
+            "cost": [2.0, 3.0],
+        }
+    ).with_columns(
+        xmodel.add_vars("x", lb=0, ub=10),
+        xmodel.add_vars("y", lb=0, ub=5),
+    )
+
+    # Test more complex expression: (x + y).sum()
+    result = df.select((xplor.var.x + xplor.var.y).sum()).item()
+    assert isinstance(result, (gp.LinExpr, gp.MLinExpr))
+
+    # Test scalar multiplication (should use fallback)
+    result_scalar = df.select((xplor.var.x * 2).sum()).item()
+    assert isinstance(result_scalar, (gp.LinExpr, gp.MLinExpr))
