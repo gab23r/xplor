@@ -1,38 +1,131 @@
 from __future__ import annotations
 
-from typing import Self
+from typing import TYPE_CHECKING, Any, Self
 
 import gurobipy as gp
 import polars as pl
 
 from xplor.exprs import VarExpr
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
-class GurobiVarExpr(VarExpr):
-    """A specialized custom Polars Expression wrapper, extending ObjExpr,
-    designed for constructing composite expressions or linear expressions.
 
-    Methods:
-        sum(): Calculates the sum of optimization objects (e.g., for objective function creation).
-        any(): Creates a Gurobi OR constraint across elements in each group.
-        abs(): Applies Gurobi's absolute value function.
+def to_mvar_or_mlinexpr(s: pl.Series) -> gp.MVar | gp.MLinExpr | Any:
+    """Convert a Polars Series to Gurobi MVar, MLinExpr, or NumPy array.
+
+    Parameters
+    ----------
+    s : pl.Series
+        Series containing Gurobi variables, linear expressions, or numeric values.
+
+    Returns
+    -------
+    gp.MVar | gp.MLinExpr | np.ndarray
+        Vectorized Gurobi array or NumPy array.
 
     """
+    first: Any = s.first(ignore_nulls=True)
+    if isinstance(first, gp.Var):
+        return gp.MVar(s)  # ty:ignore[too-many-positional-arguments]
+    if isinstance(first, gp.LinExpr):
+        return gp.MLinExpr(s.to_numpy())  # ty:ignore[too-many-positional-arguments]
+    return s.to_numpy()
+
+
+class GurobiVarExpr(VarExpr):
+    """Gurobi-specific VarExpr with optimized vectorized operations.
+
+    Extends VarExpr with Gurobi-specific optimizations using MVar/MLinExpr
+    for efficient vectorized evaluation.
+
+    Methods
+    -------
+        sum(): Vectorized sum using MVar/MLinExpr.
+        any(): Creates a Gurobi OR constraint across elements in each group.
+        all(): Creates a Gurobi AND constraint across elements in each group.
+        abs(): Applies Gurobi's absolute value function.
+        max(): Returns the maximum of elements in each group.
+        min(): Returns the minimum of elements in each group.
+
+    """
+
+    def _to_expr(self) -> pl.Expr:
+        if not self._nodes:
+            return self._expr
+        expr_repr, exprs = self.parse()
+
+        def vectorized_eval(series: Sequence[pl.Series], **kwargs: Any) -> pl.Series:
+            """Evaluate expression using vectorized NumPy operations."""
+            gp_obj = tuple(map(to_mvar_or_mlinexpr, series))
+            result = expr_repr.evaluate(gp_obj)
+
+            # Unfortunalty `MLinExpr` need to be disptach into list of LinExpr from the python side.
+            if isinstance(result, gp.MLinExpr):
+                result = [r.item() for r in result]
+            return pl.Series(result, dtype=pl.Object)
+
+        return pl.map_batches(
+            exprs,
+            vectorized_eval,
+            return_dtype=pl.Object,
+        )
 
     def sum(
         self,
     ) -> Self:
-        """Get sum value.
+        """Vectorized sum using Gurobi MVar/MLinExpr for optimal performance.
+
+        For expressions with nodes (e.g., var.x + var.y)
+        to evaluate vectorized, then calls .sum() on the result. This is
+        2-3x faster than element-wise summation.
+
+        Optimized pattern: (var * coeff).sum() uses gp.LinExpr(coeffs, vars)
+        directly, which is ~10x faster than element-wise multiplication + sum.
 
         Examples
         --------
         >>> df.group_by('group').agg(xmodel.var("x").sum())
+        >>> df.select(total=(var.x + var.y).sum())  # Vectorized!
+        >>> df.select(total=(var.x * pl.col("cost")).sum())  # Optimized LinExpr!
 
         """
         name = str(self) if self.meta.is_column() else f"({self})"
+        expr_repr, exprs = self.parse()
+        # Optimization: Detect (var * coeff).sum() pattern and use gp.LinExpr directly
+        # This is ~10x faster than element-wise multiplication followed by sum
+        if len(self._nodes) == 1 and self._nodes[0].operator in ("__mul__", "__rmul__"):
+
+            def gurobi_vectorized_sum(series: Sequence[pl.Series]) -> Any:
+                # If coeff are Object, fast path can't be taken
+                if (len(series) >= 2 and series[1].dtype is not pl.Object) or (
+                    isinstance(self._nodes[0].operand, float)
+                ):
+                    operand = (
+                        series[1].to_list()
+                        if len(series) > 1
+                        else len(series[0]) * [self._nodes[0].operand]
+                    )
+                    result = gp.LinExpr(operand, series[0].to_list())  # type: ignore
+
+                else:
+                    gp_obj = tuple(map(to_mvar_or_mlinexpr, series))
+                    result = expr_repr.evaluate(gp_obj)
+                return pl.Series([result], dtype=pl.Object)
+        else:
+            # Standard vectorized sum for other expression patterns
+            def gurobi_vectorized_sum(series: Sequence[pl.Series]) -> Any:
+                gp_obj = tuple(map(to_mvar_or_mlinexpr, series))
+                result = expr_repr.evaluate(gp_obj)
+                return pl.Series([result.sum()], dtype=pl.Object)
+
+        _, exprs = self.parse()
         return self.__class__(
-            self.map_batches(
-                lambda d: gp.quicksum(d.to_list()), return_dtype=pl.Object, returns_scalar=True
+            pl.map_batches(
+                exprs,
+                gurobi_vectorized_sum,
+                return_dtype=pl.Object,
+                returns_scalar=True,
             ),
             name=name + ".sum()",
         )

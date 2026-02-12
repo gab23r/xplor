@@ -13,7 +13,7 @@ from xplor.typing import ExpressionType, ModelType, VariableType, VarType
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from xplor.exprs import ConstrExpr
+    from xplor.exprs import ConstrExpr, VarExpr
     from xplor.exprs.obj import ExpressionRepr
 
 
@@ -338,8 +338,7 @@ class XplorModel(ABC, Generic[ModelType, VarType, ExpressionType]):
     ) -> list[VarType]: ...
 
     @abstractmethod
-    def _add_constr(self, tmp_constr: Any, name: str) -> None:
-        pass
+    def _add_constr(self, tmp_constr: Any, name: str) -> None: ...
 
     def _add_constrs(
         self,
@@ -348,7 +347,7 @@ class XplorModel(ABC, Generic[ModelType, VarType, ExpressionType]):
         indices: pl.Series,
         **constrs_repr: ExpressionRepr,
     ) -> None:
-        """Return a series of MathOpt linear constraints.
+        """Add constraints.
 
         This method is called by `XplorModel.add_constrs` after the expression
         has been processed into rows of data and a constraint string.
@@ -463,3 +462,155 @@ class XplorModel(ABC, Generic[ModelType, VarType, ExpressionType]):
 
     def _linear_expr(self, arg1: Sequence[float], arg2: Sequence[VarType]) -> ExpressionType:
         return getattr(self.model, "sum", sum)(x * y for x, y in zip(arg1, arg2, strict=False))
+
+    def minimize(
+        self,
+        df: pl.DataFrame,
+        /,
+        priority: int = 0,
+        **named_obj_exprs: VarExpr,
+    ) -> pl.DataFrame:
+        """Add minimization objectives to the model.
+
+        This method accepts named objective expressions and adds them to the model
+        at the specified priority level. Multiple objectives at the same priority
+        are combined into a single weighted sum.
+
+        Parameters
+        ----------
+        df : pl.DataFrame
+            The polars DataFrame used to evaluate the objective expressions.
+        priority : int, default 0
+            Multi-objective optimization priority. Higher priority numbers are optimized
+            FIRST (priority 2 before priority 1 before priority 0). All objectives with
+            the same priority are combined into a single weighted sum. Currently only
+            supported by the Gurobi backend.
+        named_obj_exprs : pl.Expr
+            Named objective expressions to minimize (e.g., `sum_x = xplor.var("x").sum()`).
+
+        Returns
+        -------
+        pl.DataFrame
+            The input DataFrame (unchanged), allowing for method chaining.
+
+        Examples
+        --------
+        Assuming `df` has been created and contains the variable Series `df["x"]`.
+
+        >>> df.pipe(
+        ...     xmodel.minimize,
+        ...     total_cost = (xplor.var("x") * pl.col("cost")).sum(),
+        ...     priority=1
+        ... )
+
+        >>> # Multi-objective optimization
+        >>> df.pipe(
+        ...     xmodel.minimize,
+        ...     sum_x = xplor.var("x").sum(),
+        ...     sum_y = xplor.var("y").sum(),
+        ...     priority=2
+        ... )
+
+        """
+        self._add_objectives(df, named_obj_exprs, priority, sense="minimize")
+        return df
+
+    def maximize(
+        self,
+        df: pl.DataFrame,
+        /,
+        priority: int = 0,
+        **named_obj_exprs: VarExpr,
+    ) -> pl.DataFrame:
+        """Add maximization objectives to the model.
+
+        This method accepts named objective expressions and adds them to the model
+        at the specified priority level. Multiple objectives at the same priority
+        are combined into a single weighted sum. Internally, maximization is converted
+        to minimization by negating the objective coefficients.
+
+        Parameters
+        ----------
+        df : pl.DataFrame
+            The polars DataFrame used to evaluate the objective expressions.
+        priority : int, default 0
+            Multi-objective optimization priority. Higher priority numbers are optimized
+            FIRST (priority 2 before priority 1 before priority 0). All objectives with
+            the same priority are combined into a single weighted sum. Currently only
+            supported by the Gurobi backend.
+        named_obj_exprs : pl.Expr
+            Named objective expressions to maximize (e.g., `sum_x = xplor.var("x").sum()`).
+
+        Returns
+        -------
+        pl.DataFrame
+            The input DataFrame (unchanged), allowing for method chaining.
+
+        Examples
+        --------
+        Assuming `df` has been created and contains the variable Series `df["x"]`.
+
+        >>> df.pipe(
+        ...     xmodel.maximize,
+        ...     total_revenue = (xplor.var("x") * pl.col("revenue")).sum(),
+        ...     priority=1
+        ... )
+
+        >>> # Multi-objective optimization
+        >>> df.pipe(
+        ...     xmodel.maximize,
+        ...     sum_x = xplor.var("x").sum(),
+        ...     sum_y = xplor.var("y").sum(),
+        ...     priority=2
+        ... )
+
+        """
+        self._add_objectives(df, named_obj_exprs, priority, sense="maximize")
+        return df
+
+    def _add_objectives(
+        self,
+        df: pl.DataFrame,
+        named_obj_exprs: dict[str, VarExpr],
+        priority: int,
+        sense: str,
+    ) -> None:
+        """Add objective expressions to the model at a given priority level.
+
+        Parameters
+        ----------
+        df : pl.DataFrame
+            The DataFrame used to evaluate the objective expressions.
+        named_obj_exprs : dict[str, ObjExpr]
+            Dictionary mapping objective names to expressions.
+        priority : int
+            The priority level for these objectives.
+        sense : str
+            Either "minimize" or "maximize".
+
+        """
+        obj_terms = []
+        for expr in named_obj_exprs.values():
+            # Parse the expression if it's an ObjExpr
+
+            expr_repr, exprs = expr.parse()
+            # Evaluate the expression on the DataFrame
+            df_eval = df.select([e.alias(str(i)) for i, e in enumerate(exprs)])
+
+            assert df_eval.height <= 1
+            if df_eval.height == 1:
+                # Already scalar (e.g., from .sum() aggregation)
+                obj_term = expr_repr.evaluate(df_eval.row(0))
+            else:
+                # Empty DataFrame
+                continue
+
+            # For maximize, negate the coefficient
+            if sense == "maximize":
+                obj_term = -obj_term
+            obj_terms.append(obj_term)
+
+        if priority not in self._priority_obj_terms:
+            self._priority_obj_terms[priority] = sum(obj_terms)
+        else:
+            self._priority_obj_terms[priority] += sum(obj_terms)
