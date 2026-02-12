@@ -135,7 +135,42 @@ def test_repr() -> None:
 
 def test_evaluate():
     expr_str = ExpressionRepr("row[0] * 2 + row[1]")
-    assert expr_str.evaluate((3, 5)) == 11  # ty:ignore[invalid-argument-type]
+    assert expr_str.evaluate((3, 5)) == 11
+
+
+def test_extract_indices():
+    """Test extract_indices method for different scenarios."""
+    # Test both sides (default)
+    expr1 = ExpressionRepr("row[0] == row[1]")
+    assert expr1.extract_indices() == [0, 1]
+    assert expr1.extract_indices(side=None) == [0, 1]
+
+    # Test left-hand side only
+    assert expr1.extract_indices(side="lhs") == [0]
+
+    # Test right-hand side only
+    assert expr1.extract_indices(side="rhs") == [1]
+
+    # Test with >= operator
+    expr2 = ExpressionRepr("row[2] + row[0] >= row[1]")
+    assert expr2.extract_indices() == [2, 0, 1]
+    assert expr2.extract_indices(side="lhs") == [2, 0]
+    assert expr2.extract_indices(side="rhs") == [1]
+
+    # Test with <= operator
+    expr3 = ExpressionRepr("row[3] <= row[4] + row[5]")
+    assert expr3.extract_indices() == [3, 4, 5]
+    assert expr3.extract_indices(side="lhs") == [3]
+    assert expr3.extract_indices(side="rhs") == [4, 5]
+
+    # Test with duplicate indices (should be unique)
+    expr4 = ExpressionRepr("row[0] + row[0] == row[1]")
+    assert expr4.extract_indices() == [0, 1]
+    assert expr4.extract_indices(side="lhs") == [0]
+
+    # Test without comparison operator
+    expr5 = ExpressionRepr("row[0] + row[2]")
+    assert expr5.extract_indices() == [0, 2]
 
 
 def test_multi_expression_parsing():

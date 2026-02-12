@@ -13,7 +13,7 @@ from xplor.types import cast_to_dtypes
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from gurobipy import TempLConstr
+    from gurobipy import TempGenConstr, TempLConstr
 
     from xplor.exprs.obj import ExpressionRepr
 
@@ -99,8 +99,7 @@ class XplorGurobi(XplorModel[gp.Model, gp.Var, gp.LinExpr]):
         self.model.update()
         return mvar.tolist()
 
-    def _add_constr(self, tmp_constr: TempLConstr, name: str) -> None:
-        # Use addConstr instead of addLConstr to support both regular and matrix constraints
+    def _add_constr(self, tmp_constr: TempLConstr | TempGenConstr, name: str) -> None:
         self.model.addConstr(tmp_constr, name=name)
 
     def _add_constrs(
@@ -114,12 +113,17 @@ class XplorGurobi(XplorModel[gp.Model, gp.Var, gp.LinExpr]):
 
         Overrides base class to use MVar for full vectorization.
         """
-        arrays = tuple(to_mvar_or_mlinexpr(df[col]) for col in df.columns)
+        arrays: tuple = tuple(to_mvar_or_mlinexpr(s) for s in df.iter_columns())
         # Evaluate each constraint expression vectorized - NO Python loops!
         for name, constr_repr in constrs_repr.items():
-            # Scalar case (from aggregation like .sum()): single row
-            result = constr_repr.evaluate(df.row(0) if df.height == 1 else arrays)
-            self._add_constr(result, name=name)
+            # Handle gp.GenExpr case, for loop is needed
+            rhs_idx = constr_repr.extract_indices(side="rhs")
+            if rhs_idx and isinstance(df[:, rhs_idx[0]].first(ignore_nulls=True), gp.GenExpr):
+                for row, idx in zip(df.rows(), indices, strict=True):
+                    self._add_constr(constr_repr.evaluate(row), name=f"{name}[{idx}]")
+            else:
+                result = constr_repr.evaluate(df.row(0) if df.height == 1 else arrays)
+                self._add_constr(result, name=name)
 
     def optimize(self, **kwargs: Any) -> None:
         """Solve the Gurobi model.
