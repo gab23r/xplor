@@ -10,8 +10,10 @@ from xplor.exprs import VarExpr
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    import numpy as np
 
-def to_mvar_or_mlinexpr(s: pl.Series) -> gp.MVar | gp.MLinExpr | Any:
+
+def to_mvar_or_mlinexpr(s: pl.Series) -> gp.MVar | gp.MLinExpr | np.ndarray:
     """Convert a Polars Series to Gurobi MVar, MLinExpr, or NumPy array.
 
     Parameters
@@ -76,12 +78,8 @@ class GurobiVarExpr(VarExpr):
     ) -> Self:
         """Vectorized sum using Gurobi MVar/MLinExpr for optimal performance.
 
-        For expressions with nodes (e.g., var.x + var.y)
-        to evaluate vectorized, then calls .sum() on the result. This is
-        2-3x faster than element-wise summation.
-
         Optimized pattern: (var * coeff).sum() uses gp.LinExpr(coeffs, vars)
-        directly, which is ~10x faster than element-wise multiplication + sum.
+        directly, which is much faster than element-wise multiplication + sum.
 
         Examples
         --------
@@ -145,7 +143,9 @@ class GurobiVarExpr(VarExpr):
         """
         return self.__class__(
             self.map_batches(
-                lambda d: gp.or_(d.to_list()), return_dtype=pl.Object, returns_scalar=True
+                lambda series: gp.any_(*series),  # ty:ignore
+                return_dtype=pl.Object,
+                returns_scalar=True,
             ),
             name=f"{self}.any()",
         )
@@ -164,8 +164,81 @@ class GurobiVarExpr(VarExpr):
 
         """
         return self.__class__(
-            self.map_elements(lambda d: gp.abs_(d), return_dtype=pl.Object),
+            self.map_batches(
+                lambda series: gp.abs_(*series),
+                return_dtype=pl.Object,
+                returns_scalar=True,
+            ),
             name=f"{self}.abs()",
+        )
+
+    def all(self) -> Self:  # ty:ignore[invalid-method-override]
+        """Create a Gurobi AND constraint from elements in each group.
+
+        Returns 1 if all variables/expressions are non-zero (true), 0 otherwise.
+        Equivalent to gp.and_() or gp.all_().
+
+        Parameters
+        ----------
+        expr : pl.Expr | str
+            Column name or polars expression containing Gurobi variables or expressions
+
+        Examples
+        --------
+        >>> df.group_by('group').agg(xmodel.var("x").all())
+
+        """
+        return self.__class__(
+            self.map_batches(
+                lambda series: gp.and_(*series),
+                return_dtype=pl.Object,
+                returns_scalar=True,
+            ),
+            name=f"{self}.all()",
+        )
+
+    def max(self) -> Self:
+        """Return the maximum of elements in each group.
+
+        Parameters
+        ----------
+        expr : pl.Expr | str
+            Column name or polars expression containing Gurobi variables or expressions
+
+        Examples
+        --------
+        >>> df.group_by('group').agg(xmodel.var("x").max())
+
+        """
+        return self.__class__(
+            self.map_batches(
+                lambda series: gp.max_(*series),
+                return_dtype=pl.Object,
+                returns_scalar=True,
+            ),
+            name=f"{self}.max()",
+        )
+
+    def min(self) -> Self:
+        """Return the minimum of elements in each group.
+
+        Parameters
+        ----------
+        expr : pl.Expr | str
+            Column name or polars expression containing Gurobi variables or expressions
+
+        Examples
+        --------
+        >>> df.group_by('group').agg(xmodel.var("x").min())
+
+        """
+        return self.__class__(
+            self.map_batches(
+                lambda series: gp.min_(*series),
+                return_dtype=pl.Object,
+                returns_scalar=True,
+            ),
+            name=f"{self}.min()",
         )
 
 

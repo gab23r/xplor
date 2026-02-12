@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 import polars as pl
 import polars._plr as plr
@@ -37,6 +38,61 @@ class ExpressionRepr(str):
     def evaluate(self, row: tuple[Any, ...]) -> Any:
         """Evaluate the expression with `row`."""
         return eval(self, globals(), {"row": row})
+
+    def extract_indices(self, side: Literal["rhs", "lhs"] | None = None) -> list[int]:
+        """Extract all indices from expressions like 'row[0] == row[1]'.
+
+        Parameters
+        ----------
+        side : Literal["rhs", "lhs"] | None, default None
+            Which side of the comparison to extract indices from:
+            - "lhs": left-hand side only
+            - "rhs": right-hand side only
+            - None: both sides
+
+        Returns
+        -------
+        list[int]
+            List of unique indices in order of appearance
+
+        Examples
+        --------
+        >>> expr = ExpressionRepr('row[0] == row[1]')
+        >>> expr.extract_indices()
+        [0, 1]
+        >>> expr.extract_indices(side="lhs")
+        [0]
+        >>> expr.extract_indices(side="rhs")
+        [1]
+
+        """
+        expr_str = str(self)
+
+        # If side is specified, split by comparison operators
+        if side is not None:
+            # Pattern to match comparison operators
+            comparison_pattern = r"(==|>=|<=)"
+            parts = re.split(comparison_pattern, expr_str)
+
+            if len(parts) >= 3:
+                # parts = [lhs, operator, rhs, ...]
+                if side == "lhs":
+                    expr_str = parts[0]
+                elif side == "rhs":
+                    expr_str = parts[2]
+            # If no comparison operator found, treat entire expression as the requested side
+
+        # Find all occurrences of row[digit] and extract the digit
+        matches = re.findall(r"row\[(\d+)\]", expr_str)
+        # Convert to integers and preserve order (unique values)
+        seen = set()
+        indices = []
+        for match in matches:
+            idx = int(match)
+            if idx not in seen:
+                seen.add(idx)
+                indices.append(idx)
+        return indices
 
 
 @dataclass
