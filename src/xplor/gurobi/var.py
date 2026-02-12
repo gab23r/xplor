@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Self
 
 import gurobipy as gp
+import gurobipy.nlfunc
 import polars as pl
 
 from xplor.exprs import VarExpr
@@ -49,6 +50,12 @@ class GurobiVarExpr(VarExpr):
         abs(): Applies Gurobi's absolute value function.
         max(): Returns the maximum of elements in each group.
         min(): Returns the minimum of elements in each group.
+        square(): Creates quadratic expressions (x^2).
+        exp(): Exponential function (e^x).
+        log(): Natural logarithm (ln(x)).
+        sin(): Sine function.
+        cos(): Cosine function.
+        sqrt(): Square root.
 
     """
 
@@ -240,6 +247,110 @@ class GurobiVarExpr(VarExpr):
             ),
             name=f"{self}.min()",
         )
+
+    def _create_nl_func(self, func_name: str) -> Self:
+        """Create a vectorized nonlinear function expression.
+
+        Parameters
+        ----------
+        func_name : str
+            Name of the Gurobi nlfunc function (e.g., 'square', 'exp', 'log').
+
+        Returns
+        -------
+        Self
+            New GurobiVarExpr with the nonlinear function applied.
+
+        """
+        nl_func = getattr(gurobipy.nlfunc, func_name)
+
+        def vectorized_nl_func(series: pl.Series) -> pl.Series:
+            mvar = to_mvar_or_mlinexpr(series)
+            result = nl_func(mvar)
+            # MNLExpr is iterable like MLinExpr - extract elements using .item()
+            return pl.Series([r.item() for r in result], dtype=pl.Object)
+
+        return self.__class__(
+            self.map_batches(
+                vectorized_nl_func,
+                return_dtype=pl.Object,
+                returns_scalar=False,
+            ),
+            name=f"{func_name}({self})",
+        )
+
+    def square(self) -> Self:
+        """Square the variable (quadratic constraint, equivalent to x^2).
+
+        Creates a quadratic expression using Gurobi's vectorized square function.
+        This is much faster than element-wise squaring.
+
+        Examples
+        --------
+        >>> df.with_columns(x_squared=xmodel.var("x").square())
+
+        """
+        return self._create_nl_func("square")
+
+    def exp(self) -> Self:
+        """Exponential function (e^x).
+
+        Creates a nonlinear expression using Gurobi's vectorized exp function.
+
+        Examples
+        --------
+        >>> df.with_columns(exp_x=xmodel.var("x").exp())
+
+        """
+        return self._create_nl_func("exp")
+
+    def log(self) -> Self:  # ty:ignore[invalid-method-override]
+        """Natural logarithm (ln(x)).
+
+        Creates a nonlinear expression using Gurobi's vectorized log function.
+
+        Examples
+        --------
+        >>> df.with_columns(log_x=xmodel.var("x").log())
+
+        """
+        return self._create_nl_func("log")
+
+    def sin(self) -> Self:
+        """Sine function.
+
+        Creates a nonlinear expression using Gurobi's vectorized sin function.
+
+        Examples
+        --------
+        >>> df.with_columns(sin_x=xmodel.var("x").sin())
+
+        """
+        return self._create_nl_func("sin")
+
+    def cos(self) -> Self:
+        """Cosine function.
+
+        Creates a nonlinear expression using Gurobi's vectorized cos function.
+
+        Examples
+        --------
+        >>> df.with_columns(cos_x=xmodel.var("x").cos())
+
+        """
+        return self._create_nl_func("cos")
+
+    def sqrt(self) -> Self:
+        """Square root function.
+
+        Creates a nonlinear expression using Gurobi's vectorized sqrt function.
+
+        Examples
+        --------
+        >>> df.with_columns(sqrt_x=xmodel.var("x").sqrt())
+
+        """
+        return self._create_nl_func("sqrt")
 
 
 class _ProxyGurobiVarExpr:

@@ -158,3 +158,70 @@ def test_general_constraint_abs():
     y_values = df.select(xmodel.read_values(pl.col("y"))).to_series()
     expected = [2.0, 3.0]
     assert y_values.to_list() == pytest.approx(expected, rel=1e-4)
+
+
+def test_quadratic_constraint():
+    """Test quadratic constraints using square()."""
+    xmodel = XplorGurobi()
+
+    # Create variables
+    df = pl.DataFrame({"id": [0, 1], "value": [3.0, 4.0]}).with_columns(
+        xmodel.add_vars("x", lb=0, ub=10), xmodel.add_vars("y", lb=0, ub=100)
+    )
+
+    # Create quadratic expression: y = x^2 using Gurobi's var
+    df = df.with_columns(x_squared=df.select(xmodel.var.x.square()).to_series())
+
+    # Add constraints: x = value and y = x^2
+    xmodel.add_constrs(df, set_x=xmodel.var.x == pl.col("value"))
+    xmodel.add_constrs(df, quad=xmodel.var.y == xmodel.var.x_squared)
+
+    xmodel.optimize()
+
+    # Check that y values equal x squared
+    y_values = df.select(xmodel.read_values(pl.col("y"))).to_series()
+    expected = [9.0, 16.0]  # 3^2 = 9, 4^2 = 16
+    assert y_values.to_list() == pytest.approx(expected, rel=1e-4)
+
+
+def test_nonlinear_functions():
+    """Test nonlinear functions (exp, log, sin, cos, sqrt)."""
+    import math
+
+    xmodel = XplorGurobi()
+
+    # Create variables
+    df = pl.DataFrame({"id": [0, 1], "value": [1.0, 2.0]}).with_columns(
+        xmodel.add_vars("x", lb=0.1, ub=10),
+        xmodel.add_vars("y_exp", lb=0, ub=100),
+        xmodel.add_vars("y_log", lb=-10, ub=10),
+        xmodel.add_vars("y_sqrt", lb=0, ub=10),
+    )
+
+    # Create nonlinear expressions
+    df = df.with_columns(
+        x_exp=df.select(xmodel.var.x.exp()).to_series(),
+        x_log=df.select(xmodel.var.x.log()).to_series(),
+        x_sqrt=df.select(xmodel.var.x.sqrt()).to_series(),
+    )
+
+    # Add constraints: x = value and y = f(x)
+    xmodel.add_constrs(df, set_x=xmodel.var.x == pl.col("value"))
+    xmodel.add_constrs(df, exp_c=xmodel.var.y_exp == xmodel.var.x_exp)
+    xmodel.add_constrs(df, log_c=xmodel.var.y_log == xmodel.var.x_log)
+    xmodel.add_constrs(df, sqrt_c=xmodel.var.y_sqrt == xmodel.var.x_sqrt)
+
+    xmodel.optimize()
+
+    # Check that y values equal the nonlinear functions of x
+    exp_values = df.select(xmodel.read_values(pl.col("y_exp"))).to_series()
+    log_values = df.select(xmodel.read_values(pl.col("y_log"))).to_series()
+    sqrt_values = df.select(xmodel.read_values(pl.col("y_sqrt"))).to_series()
+
+    expected_exp = [math.exp(1.0), math.exp(2.0)]
+    expected_log = [math.log(1.0), math.log(2.0)]
+    expected_sqrt = [math.sqrt(1.0), math.sqrt(2.0)]
+
+    assert exp_values.to_list() == pytest.approx(expected_exp, rel=1e-4)
+    assert log_values.to_list() == pytest.approx(expected_log, rel=1e-4)
+    assert sqrt_values.to_list() == pytest.approx(expected_sqrt, rel=1e-4)
