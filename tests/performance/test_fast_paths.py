@@ -121,12 +121,81 @@ class TestSumFastPaths:
         assert isinstance(result_int, gp.LinExpr)
         assert isinstance(result_float, gp.LinExpr)
 
+    def test_operations_with_null_values(self):
+        """Operations should handle null values correctly (null treated as 0)."""
+        xmodel = XplorGurobi()
+        df = pl.DataFrame({"cost": [2.0, 3.0, 5.0]}).with_columns(
+            xmodel.add_vars("x", lb=0, ub=10).shift()
+        )
+
+        # Should handle null values without crashing
+        result = df.select(xmodel.var.x + 1)
+
+        # All rows should be LinExpr
+        assert all(isinstance(val, gp.LinExpr) for val in result["x"])
+
+        # First row (null var + 1) should be just "1.0"
+        # Null variable is treated as 0, so null + 1 = 1
+        assert str(result["x"][0]) == "1.0"
+        assert result["x"][0].size() == 0  # No variables
+
+        # Other rows should have variables
+        assert result["x"][1].size() == 1  # Has 1 variable
+        assert result["x"][2].size() == 1  # Has 1 variable
+
+    def test_operations_with_non_var_values(self):
+        """Operations should handle null values correctly (null treated as 0)."""
+        xmodel = XplorGurobi()
+        df = pl.DataFrame({"cost": [2.0, 3.0, 5.0]}).with_columns(
+            xmodel.add_vars("x", lb=0, ub=10).shift(fill_value=pl.lit(0, dtype=pl.Object))
+        )
+
+        # Should handle null values without crashing
+        result = df.select(xmodel.var.x + 1)
+
+        # All rows should be LinExpr
+        assert all(isinstance(val, gp.LinExpr) for val in result["x"])
+
+        # First row (null var + 1) should be just "1.0"
+        # Null variable is treated as 0, so null + 1 = 1
+        assert str(result["x"][0]) == "1.0"
+        assert result["x"][0].size() == 0  # No variables
+
+        # Other rows should have variables
+        assert result["x"][1].size() == 1  # Has 1 variable
+        assert result["x"][2].size() == 1  # Has 1 variable
+
+    def test_grouped_sum_uses_quicksum(self):
+        """Grouped aggregation with .sum() should use gp.quicksum fast path."""
+        xmodel = XplorGurobi()
+        df = pl.DataFrame({"i": range(30)}).with_columns(xmodel.add_vars("x", lb=0, ub=10))
+
+        # Mock gp.quicksum to verify it's called for grouped aggregation
+        with patch("xplor.gurobi.var.gp.quicksum", wraps=gp.quicksum) as mock_quicksum:
+            # Group by (i // 10) creates 3 groups: [0-9], [10-19], [20-29]
+            result = df.group_by(pl.col("i") // 10).agg(xmodel.var.x.sum())
+
+            # Verify quicksum was called (once per group = 3 times)
+            assert mock_quicksum.called
+            assert mock_quicksum.call_count == 3
+
+            # Each call should receive a series of variables (10 vars per group)
+            for call in mock_quicksum.call_args_list:
+                series_arg = call[0][0]  # First positional argument
+                assert len(series_arg) == 10  # 10 items per group
+
+        # Verify result structure
+        assert len(result) == 3  # 3 groups
+        assert all(isinstance(expr, gp.LinExpr) for expr in result["x"])
+        # Each LinExpr should have 10 variables (one per row in the group)
+        assert all(expr.size() == 10 for expr in result["x"])
+
 
 class TestVectorizedOperations:
-    """Verify vectorized operations use MVar/MLinExpr, not numpy arrays."""
+    """Verify vectorized operations use MLinExpr, not numpy arrays."""
 
-    def test_square_uses_mvar(self):
-        """square() should convert to MVar for vectorization."""
+    def test_square_uses_mlinexpr(self):
+        """square() should convert to MLinExpr for vectorization."""
         xmodel = XplorGurobi()
         df = pl.DataFrame({"id": [0, 1, 2]}).with_columns(xmodel.add_vars("x", lb=0, ub=10))
 
@@ -138,13 +207,12 @@ class TestVectorizedOperations:
             # Verify to_mvar_or_mlinexpr was called
             assert mock_convert.called
 
-            # Verify it returned MVar (not numpy array)
-            # The first call should return MVar for Var series
+            # Verify it returned MLinExpr (not numpy array)
             for call in mock_convert.call_args_list:
                 series = call[0][0]
                 first = series.first(ignore_nulls=True)
                 if isinstance(first, gp.Var):
-                    # This call should have returned MVar
+                    # This call should have returned MLinExpr
                     returned = to_mvar_or_mlinexpr(series)
                     assert isinstance(returned, gp.MVar)
                     break
@@ -152,8 +220,8 @@ class TestVectorizedOperations:
         # Result should be NLExpr from vectorized nlfunc.square
         assert all(isinstance(x, gp.NLExpr) for x in result)
 
-    def test_exp_uses_mvar(self):
-        """exp() should convert to MVar for vectorization."""
+    def test_exp_uses_mlinexpr(self):
+        """exp() should convert to MLinExpr for vectorization."""
         xmodel = XplorGurobi()
         df = pl.DataFrame({"id": [0, 1]}).with_columns(xmodel.add_vars("x", lb=0, ub=10))
 
@@ -165,7 +233,7 @@ class TestVectorizedOperations:
             # Verify conversion was called
             assert mock_convert.called
 
-            # Check that MVar was created for Var series
+            # Check that MLinExpr was created for Var series
             for call in mock_convert.call_args_list:
                 series = call[0][0]
                 first = series.first(ignore_nulls=True)
@@ -178,7 +246,7 @@ class TestVectorizedOperations:
         assert all(isinstance(x, gp.NLExpr) for x in result)
 
     def test_all_nonlinear_functions_use_vectorization(self):
-        """All nonlinear functions should use vectorized MVar operations."""
+        """All nonlinear functions should use vectorized MLinExpr operations."""
         xmodel = XplorGurobi()
         df = pl.DataFrame({"id": [0, 1]}).with_columns(xmodel.add_vars("x", lb=0.1, ub=10))
 
@@ -198,7 +266,7 @@ class TestVectorizedOperations:
             ) as mock_convert:
                 result = df.select(expr).to_series()
 
-                # Verify MVar was used
+                # Verify MLinExpr was used
                 assert mock_convert.called, f"{func_name} should call to_mvar_or_mlinexpr"
 
                 # Verify result is NLExpr
@@ -286,7 +354,7 @@ class TestTypeCorrectness:
         xmodel = XplorGurobi()
         df = pl.DataFrame({"id": [0, 1]}).with_columns(xmodel.add_vars("x", lb=0, ub=10))
 
-        # Test with Var series
+        # Test with Var series (Object dtype)
         var_series = df["x"]
         result = to_mvar_or_mlinexpr(var_series)
         assert isinstance(result, gp.MVar)

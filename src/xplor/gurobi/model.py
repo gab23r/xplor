@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 import gurobipy as gp
 import polars as pl
 
-from xplor.gurobi.var import _ProxyGurobiVarExpr, to_mvar_or_mlinexpr
+from xplor.gurobi.var import _ProxyGurobiVarExpr, first_gurobi_expr, to_mvar_or_mlinexpr
 from xplor.model import XplorModel
 from xplor.types import cast_to_dtypes
 
@@ -119,7 +119,7 @@ class XplorGurobi(XplorModel[gp.Model, gp.Var, gp.LinExpr]):
             # Handle gp.GenExpr, gp.QuadExpr, and gp.NLExpr - these require row-by-row processing
             rhs_idx = constr_repr.extract_indices(side="rhs")
             if rhs_idx:
-                first_val = df[:, rhs_idx[0]].first(ignore_nulls=True)
+                first_val = first_gurobi_expr(df[:, rhs_idx[0]])
                 # Check if RHS contains non-vectorizable expressions
                 if isinstance(first_val, (gp.GenExpr, gp.QuadExpr, gp.NLExpr)):
                     for row, idx in zip(df.rows(), indices, strict=True):
