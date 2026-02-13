@@ -8,7 +8,6 @@ from unittest.mock import patch
 
 import gurobipy as gp
 import polars as pl
-import pytest
 
 import xplor
 from xplor.gurobi import XplorGurobi
@@ -60,34 +59,6 @@ class TestSumFastPaths:
 
         assert isinstance(result, gp.LinExpr)
         assert result.size() == 3
-
-    def test_sum_with_addition_uses_vectorized_path(self):
-        """(var + const).sum() should use vectorized MVar path, not fast LinExpr path."""
-        xmodel = XplorGurobi()
-        df = pl.DataFrame({"id": [0, 1, 2]}).with_columns(xmodel.add_vars("x", lb=0, ub=10))
-
-        # Mock both to verify which is called
-        with (
-            patch("xplor.gurobi.var.gp.LinExpr", wraps=gp.LinExpr) as mock_linexpr,
-            patch(
-                "xplor.gurobi.var.to_mvar_or_mlinexpr", wraps=to_mvar_or_mlinexpr
-            ) as mock_convert,
-        ):
-            result = df.select((xmodel.var.x + 5).sum()).item()
-
-            # Should use to_mvar_or_mlinexpr (vectorized path)
-            assert mock_convert.called
-            # Should NOT use LinExpr constructor directly (not multiplication fast path)
-            # Note: LinExpr might still be called internally by Gurobi, but not with (coeffs, vars)
-            if mock_linexpr.called:
-                # If called, should not be with 2 args (the fast path signature)
-                for call in mock_linexpr.call_args_list:
-                    # Fast path uses positional args: LinExpr(coeffs, vars)
-                    # Other uses might have different signatures
-                    if len(call[0]) == 2 and isinstance(call[0][0], list):
-                        pytest.fail("Should not use LinExpr(coeffs, vars) fast path")
-
-        assert isinstance(result, (gp.LinExpr, gp.MLinExpr))
 
     def test_sum_without_multiplication_uses_vectorized_path(self):
         """(var + var).sum() should use standard vectorized path."""

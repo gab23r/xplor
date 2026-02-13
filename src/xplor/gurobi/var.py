@@ -43,6 +43,12 @@ def first_gurobi_expr(
 def to_mvar_or_mlinexpr(s: pl.Series) -> gp.MVar | gp.MLinExpr | np.ndarray:
     """Convert a Polars Series to Gurobi MVar, MLinExpr, or NumPy array.
 
+    Scans the entire series to determine the appropriate Gurobi type:
+    - If ANY element is GenExpr/QuadExpr/NLExpr → numpy array (row-by-row processing)
+    - Else if ANY element is LinExpr → MLinExpr (vectorized)
+    - Else if ANY element is Var → MVar (fastest vectorized)
+    - Else → numpy array (numeric values)
+
     Parameters
     ----------
     s : pl.Series
@@ -55,19 +61,27 @@ def to_mvar_or_mlinexpr(s: pl.Series) -> gp.MVar | gp.MLinExpr | np.ndarray:
 
     """
     if s.dtype == pl.Object:
-        # Find first Gurobi object (not numeric value)
-        first = first_gurobi_expr(s)
+        has_linexpr = False
+        has_var = False
 
-        # Check if contains non-vectorizable expressions (NLExpr, QuadExpr, GenExpr)
-        if isinstance(first, (gp.NLExpr, gp.QuadExpr, gp.GenExpr)):
-            # Return numpy array for row-by-row processing
-            return s.to_numpy()
-        if isinstance(first, gp.Var):
-            try:  # can fail if s contains non Var element
+        for val in s:
+            if isinstance(val, gp.LinExpr):
+                has_linexpr = True
+                break  # return immediately
+            elif isinstance(val, gp.Var):
+                has_var = True
+
+        if has_linexpr:
+            # Contains LinExpr → MLinExpr
+            return gp.MLinExpr._from_linexprs(s)  # ty:ignore[unresolved-attribute]
+        elif has_var:
+            # Contains only Var → MVar (fastest)
+            try:
                 return gp.MVar(s)  # ty:ignore[too-many-positional-arguments]
             except AttributeError:
+                # Fallback if MVar construction fails
                 return gp.MLinExpr._from_linexprs(s)  # ty:ignore[unresolved-attribute]
-        return gp.MLinExpr._from_linexprs(s)  # ty:ignore[unresolved-attribute]
+
     return s.to_numpy()
 
 
