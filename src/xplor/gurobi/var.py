@@ -104,7 +104,7 @@ class GurobiVarExpr(VarExpr):
             def gurobi_vectorized_sum(series: Sequence[pl.Series]) -> Any:
                 # If coeff are Object, fast path can't be taken
                 if (len(series) >= 2 and series[1].dtype is not pl.Object) or (
-                    isinstance(self._nodes[0].operand, float)
+                    isinstance(self._nodes[0].operand, float | int)
                 ):
                     operand = (
                         series[1].to_list()
@@ -122,7 +122,7 @@ class GurobiVarExpr(VarExpr):
             def gurobi_vectorized_sum(series: Sequence[pl.Series]) -> Any:
                 gp_obj = tuple(map(to_mvar_or_mlinexpr, series))
                 result = expr_repr.evaluate(gp_obj)
-                return pl.Series([result.sum()], dtype=pl.Object)
+                return pl.Series([result.sum().item()], dtype=pl.Object)
 
         _, exprs = self.parse()
         return self.__class__(

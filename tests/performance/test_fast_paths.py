@@ -108,6 +108,19 @@ class TestSumFastPaths:
         # Standard path uses MVar/MLinExpr vectorization
         assert isinstance(result, (gp.LinExpr, gp.MLinExpr))
 
+    def test_sum_with_integer_coefficient_uses_fast_path(self):
+        """(var * 1).sum() should use fast LinExpr path with integer coefficient."""
+        xmodel = XplorGurobi()
+        df = pl.DataFrame({"cost": [2.0, 3.0, 5.0]}).with_columns(xmodel.add_vars("x", lb=0, ub=10))
+
+        result = df.select(xmodel.var.x.sum()).item()
+        result_int = df.select((xmodel.var.x * 1).sum()).item()
+        result_float = df.select((xmodel.var.x * 1.0).sum()).item()
+
+        assert isinstance(result, gp.LinExpr)
+        assert isinstance(result_int, gp.LinExpr)
+        assert isinstance(result_float, gp.LinExpr)
+
 
 class TestVectorizedOperations:
     """Verify vectorized operations use MVar/MLinExpr, not numpy arrays."""
