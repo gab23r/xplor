@@ -19,7 +19,7 @@ class TestMLinExprToLinExprList:
 
         # Create expanded MLinExpr using _from_linexprs
         linexprs_input = [(df["x"][i] + df["y"][i]) for i in range(len(df))]
-        mlinexpr = gp.MLinExpr._from_linexprs(linexprs_input)
+        mlinexpr = gp.MLinExpr._from_linexprs(linexprs_input)  # ty:ignore[unresolved-attribute]
 
         # Convert back
         result = mlinexpr_to_linexpr_list(mlinexpr)
@@ -37,8 +37,8 @@ class TestMLinExprToLinExprList:
         )
 
         # Create compact MLinExpr using MVar arithmetic
-        mvar_x = gp.MVar(df["x"])
-        mvar_y = gp.MVar(df["y"])
+        mvar_x = gp.MVar(df["x"])  # ty:ignore[too-many-positional-arguments]
+        mvar_y = gp.MVar(df["y"])  # ty:ignore[too-many-positional-arguments]
         mlinexpr = mvar_x + mvar_y * 2
 
         # Convert
@@ -57,8 +57,8 @@ class TestMLinExprToLinExprList:
         )
 
         # MLinExpr with constant
-        mvar_x = gp.MVar(df["x"])
-        mvar_y = gp.MVar(df["y"])
+        mvar_x = gp.MVar(df["x"])  # ty:ignore[too-many-positional-arguments]
+        mvar_y = gp.MVar(df["y"])  # ty:ignore[too-many-positional-arguments]
         mlinexpr = mvar_x + mvar_y * 3 + 7
 
         result = mlinexpr_to_linexpr_list(mlinexpr)
@@ -75,8 +75,8 @@ class TestMLinExprToLinExprList:
         )
 
         # MLinExpr without constant
-        mvar_x = gp.MVar(df["x"])
-        mvar_y = gp.MVar(df["y"])
+        mvar_x = gp.MVar(df["x"])  # ty:ignore[too-many-positional-arguments]
+        mvar_y = gp.MVar(df["y"])  # ty:ignore[too-many-positional-arguments]
         mlinexpr = mvar_x + mvar_y
 
         result = mlinexpr_to_linexpr_list(mlinexpr)
@@ -94,8 +94,8 @@ class TestMLinExprToLinExprList:
         )
 
         # Create large MLinExpr
-        mvar_x = gp.MVar(df["x"])
-        mvar_y = gp.MVar(df["y"])
+        mvar_x = gp.MVar(df["x"])  # ty:ignore[too-many-positional-arguments]
+        mvar_y = gp.MVar(df["y"])  # ty:ignore[too-many-positional-arguments]
         mlinexpr = mvar_x * 2 + mvar_y * 3 + 5
 
         # Should complete quickly
@@ -114,15 +114,15 @@ class TestMLinExprToLinExprList:
         )
 
         # Create MLinExpr
-        mvar_x = gp.MVar(df["x"])
-        mvar_y = gp.MVar(df["y"])
+        mvar_x = gp.MVar(df["x"])  # ty:ignore[too-many-positional-arguments]
+        mvar_y = gp.MVar(df["y"])  # ty:ignore[too-many-positional-arguments]
         mlinexpr = mvar_x + mvar_y * 2 + 3
 
         # Optimized path
         result_optimized = mlinexpr_to_linexpr_list(mlinexpr)
 
         # Baseline path (direct iteration)
-        result_baseline = list(map(lambda r: r.item(), mlinexpr))
+        result_baseline = list(map(lambda r: r.item(), mlinexpr))  # noqa: C417  # ty:ignore[invalid-argument-type]
 
         # Compare string representations
         for i in range(len(result_optimized)):
@@ -133,7 +133,7 @@ class TestMLinExprToLinExprList:
         xmodel = XplorGurobi()
         df = pl.DataFrame({"id": range(5)}).with_columns(xmodel.add_vars("x", lb=0, ub=10))
 
-        mvar_x = gp.MVar(df["x"])
+        mvar_x = gp.MVar(df["x"])  # ty:ignore[too-many-positional-arguments]
         mlinexpr = mvar_x * 5
 
         result = mlinexpr_to_linexpr_list(mlinexpr)
@@ -152,7 +152,7 @@ class TestMLinExprToLinExprList:
             xmodel.add_vars("x4", lb=0, ub=10),
         )
 
-        mlinexpr = gp.MVar(df["x1"]) + gp.MVar(df["x2"]) + gp.MVar(df["x3"]) + gp.MVar(df["x4"])
+        mlinexpr = gp.MVar(df["x1"]) + gp.MVar(df["x2"]) + gp.MVar(df["x3"]) + gp.MVar(df["x4"])  # ty:ignore[too-many-positional-arguments]
 
         result = mlinexpr_to_linexpr_list(mlinexpr)
 

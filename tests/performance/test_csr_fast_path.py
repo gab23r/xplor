@@ -342,7 +342,7 @@ class TestCSRFastPathVsBaseline:
         csr_result = df.select(xmodel.var.x + xmodel.var.y * 2)
 
         # Verify by checking string representation of expressions
-        for i, expr in enumerate(csr_result["x"]):
+        for expr in csr_result["x"]:
             # Each expression should have correct structure
             assert expr.size() == 2
             # Coefficient of second variable should be 2
