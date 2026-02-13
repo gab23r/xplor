@@ -1726,7 +1726,6 @@ version = "0.5.1"
 source = { editable = "." }
 dependencies = [
     { name = "polars" },
-    { name = "scipy" },
 ]
 
 [package.optional-dependencies]
@@ -1736,6 +1735,7 @@ all = [
     { name = "gurobipy" },
     { name = "hexaly" },
     { name = "ortools" },
+    { name = "scipy" },
 ]
 cplex = [
     { name = "cplex" },
@@ -1743,6 +1743,7 @@ cplex = [
 ]
 gurobi = [
     { name = "gurobipy" },
+    { name = "scipy" },
 ]
 hexaly = [
     { name = "hexaly" },
@@ -1777,7 +1778,7 @@ requires-dist = [
     { name = "hexaly", marker = "extra == 'hexaly'", specifier = ">=14.0.20251203", index = "https://pip.hexaly.com/" },
     { name = "ortools", marker = "extra == 'ortools'", specifier = ">=9.11.4210" },
     { name = "polars", specifier = ">=1.36.1" },
-    { name = "scipy", extras = ["gurobi"], specifier = ">=1.17.0" },
+    { name = "scipy", marker = "extra == 'gurobi'", specifier = ">=1.17.0" },
     { name = "xplor", extras = ["cplex"], marker = "extra == 'all'" },
     { name = "xplor", extras = ["gurobi"], marker = "extra == 'all'" },
     { name = "xplor", extras = ["hexaly"], marker = "extra == 'all'" },
