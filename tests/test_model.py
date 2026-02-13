@@ -70,8 +70,8 @@ def test_add_constrs():
     assert [constr.ConstrName for constr in xmodel.model.getConstrs()] == [
         "x.sum()[0]",
         "y.sum()[0]",
-        "(x + 1).sum() >= 1.5",
-        "(y + 1).sum() >= 1.5",
+        "(x + 1).sum() >= 1.5[0]",
+        "(y + 1).sum() >= 1.5[0]",
         "(x - y) >= 0.5[0]",
         "(x - y) >= 0.5[1]",
     ]

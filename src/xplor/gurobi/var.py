@@ -7,6 +7,7 @@ import gurobipy.nlfunc
 import polars as pl
 
 from xplor.exprs import VarExpr
+from xplor.gurobi.utils import mlinexpr_to_linexpr_list
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -14,8 +15,39 @@ if TYPE_CHECKING:
     import numpy as np
 
 
+def first_gurobi_expr(
+    s: pl.Series,
+) -> gp.Var | gp.LinExpr | gp.NLExpr | gp.QuadExpr | gp.GenExpr | None:
+    """Find the first Gurobi expression object in a Series.
+
+    Loops through series values to find the first Gurobi object, which is more
+    efficient than using Series.first(ignore_nulls=True) for Object dtype series.
+
+    Parameters
+    ----------
+    s : pl.Series
+        Series potentially containing Gurobi expression objects.
+
+    Returns
+    -------
+    gp.Var | gp.LinExpr | gp.NLExpr | gp.QuadExpr | gp.GenExpr | None
+        First Gurobi expression found, or None if no Gurobi objects exist.
+
+    """
+    for val in s:
+        if isinstance(val, (gp.Var, gp.LinExpr, gp.NLExpr, gp.QuadExpr, gp.GenExpr)):
+            return val
+    return None
+
+
 def to_mvar_or_mlinexpr(s: pl.Series) -> gp.MVar | gp.MLinExpr | np.ndarray:
     """Convert a Polars Series to Gurobi MVar, MLinExpr, or NumPy array.
+
+    Scans the entire series to determine the appropriate Gurobi type:
+    - If ANY element is GenExpr/QuadExpr/NLExpr → numpy array (row-by-row processing)
+    - Else if ANY element is LinExpr → MLinExpr (vectorized)
+    - Else if ANY element is Var → MVar (fastest vectorized)
+    - Else → numpy array (numeric values)
 
     Parameters
     ----------
@@ -28,11 +60,28 @@ def to_mvar_or_mlinexpr(s: pl.Series) -> gp.MVar | gp.MLinExpr | np.ndarray:
         Vectorized Gurobi array or NumPy array.
 
     """
-    first: Any = s.first(ignore_nulls=True)
-    if isinstance(first, gp.Var):
-        return gp.MVar(s)  # ty:ignore[too-many-positional-arguments]
-    if isinstance(first, gp.LinExpr):
-        return gp.MLinExpr(s.to_numpy())  # ty:ignore[too-many-positional-arguments]
+    if s.dtype == pl.Object:
+        has_linexpr = False
+        has_var = False
+
+        for val in s:
+            if isinstance(val, gp.LinExpr):
+                has_linexpr = True
+                break  # return immediately
+            elif isinstance(val, gp.Var):
+                has_var = True
+
+        if has_linexpr:
+            # Contains LinExpr → MLinExpr
+            return gp.MLinExpr._from_linexprs(s)  # ty:ignore[unresolved-attribute]
+        elif has_var:
+            # Contains only Var → MVar (fastest)
+            try:
+                return gp.MVar(s)  # ty:ignore[too-many-positional-arguments]
+            except AttributeError:
+                # Fallback if MVar construction fails
+                return gp.MLinExpr._from_linexprs(s)  # ty:ignore[unresolved-attribute]
+
     return s.to_numpy()
 
 
@@ -69,9 +118,9 @@ class GurobiVarExpr(VarExpr):
             gp_obj = tuple(map(to_mvar_or_mlinexpr, series))
             result = expr_repr.evaluate(gp_obj)
 
-            # Unfortunalty `MLinExpr` need to be disptach into list of LinExpr from the python side.
+            # MLinExpr needs to be dispatched into list of LinExpr
             if isinstance(result, gp.MLinExpr):
-                result = [r.item() for r in result]
+                result = mlinexpr_to_linexpr_list(result)
             return pl.Series(result, dtype=pl.Object)
 
         return pl.map_batches(
@@ -97,21 +146,28 @@ class GurobiVarExpr(VarExpr):
         """
         name = str(self) if self.meta.is_column() else f"({self})"
         expr_repr, exprs = self.parse()
+        indices = expr_repr.extract_indices()
+        # If no extra nodes (e.g. var.x.sum()), gp.quicksum is faster
+        if len(self._nodes) == 0:
+
+            def gurobi_vectorized_sum(series: Sequence[pl.Series]) -> Any:
+                return gp.quicksum(series[indices[0]])
+
         # Optimization: Detect (var * coeff).sum() pattern and use gp.LinExpr directly
         # This is ~10x faster than element-wise multiplication followed by sum
-        if len(self._nodes) == 1 and self._nodes[0].operator in ("__mul__", "__rmul__"):
+        elif len(self._nodes) == 1 and self._nodes[0].operator in ("__mul__", "__rmul__"):
 
             def gurobi_vectorized_sum(series: Sequence[pl.Series]) -> Any:
                 # If coeff are Object, fast path can't be taken
-                if (len(series) >= 2 and series[1].dtype is not pl.Object) or (
-                    isinstance(self._nodes[0].operand, float)
+                if (len(indices) >= 2 and series[indices[1]].dtype is not pl.Object) or (
+                    isinstance(self._nodes[0].operand, float | int)
                 ):
                     operand = (
-                        series[1].to_list()
+                        series[indices[1]].to_list()
                         if len(series) > 1
-                        else len(series[0]) * [self._nodes[0].operand]
+                        else len(series[indices[0]]) * [self._nodes[0].operand]
                     )
-                    result = gp.LinExpr(operand, series[0].to_list())  # type: ignore
+                    result = gp.LinExpr(operand, series[indices[0]].to_list())  # type: ignore
 
                 else:
                     gp_obj = tuple(map(to_mvar_or_mlinexpr, series))
@@ -122,7 +178,7 @@ class GurobiVarExpr(VarExpr):
             def gurobi_vectorized_sum(series: Sequence[pl.Series]) -> Any:
                 gp_obj = tuple(map(to_mvar_or_mlinexpr, series))
                 result = expr_repr.evaluate(gp_obj)
-                return pl.Series([result.sum()], dtype=pl.Object)
+                return pl.Series([result.sum().item()], dtype=pl.Object)
 
         _, exprs = self.parse()
         return self.__class__(

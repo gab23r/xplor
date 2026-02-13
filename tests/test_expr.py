@@ -93,8 +93,7 @@ def test_process_expression_with_expr_operand():
     """Tests parse for operations with another pl.Expr operand."""
     obj_expr_2 = pl.col("b") + ObjExpr(pl.col("a")) + ObjExpr(pl.col("a"))
 
-    expr_repr, exprs = obj_expr_2.parse()  # type: ignore
-
+    expr_repr, exprs = obj_expr_2.parse()
     # Check ExpressionRepr structure (operand is now row[1])
     assert str(expr_repr) == "(row[1] + row[0]) + row[0]"
 
@@ -178,7 +177,7 @@ def test_multi_expression_parsing():
     exprs = obj_expr.parse()[1]
 
     obj_expr2 = 1 + pl.col("c") + xplor.var.a + xplor.var.b
-    assert obj_expr2.parse(exprs)[0] == "(row[2] + row[0]) + row[1]"  # type: ignore
+    assert obj_expr2.parse(exprs)[0] == "(row[2] + row[0]) + row[1]"
 
 
 def test_gurobi_linexpr_optimization():
