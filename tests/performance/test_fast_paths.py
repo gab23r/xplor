@@ -118,7 +118,7 @@ class TestSumFastPaths:
         """Operations should handle null values correctly (null treated as 0)."""
         xmodel = XplorGurobi()
         df = pl.DataFrame({"cost": [2.0, 3.0, 5.0]}).with_columns(
-            xmodel.add_vars("x", lb=0, ub=10).shift(fill_value=pl.lit(0, dtype=pl.Object))
+            xmodel.add_vars("x", lb=0, ub=10).shift()
         )
 
         # Should handle null values without crashing

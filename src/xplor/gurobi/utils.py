@@ -7,10 +7,7 @@ individual expression objects (LinExpr, Var).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import gurobipy as gp
+import gurobipy as gp
 
 
 def mlinexpr_to_linexpr_list(mlinexpr: gp.MLinExpr) -> list[gp.LinExpr]:
@@ -89,8 +86,6 @@ def mlinexpr_to_linexpr_list(mlinexpr: gp.MLinExpr) -> list[gp.LinExpr]:
        https://www.gurobi.com/documentation/current/refman/py_mlinexpr.html
 
     """
-    import gurobipy as gp
-
     # FAST PATH: Expanded format with _learr populated
     # This is the common case when using MLinExpr._from_linexprs()
     if mlinexpr._learr is not None:  # ty:ignore[unresolved-attribute]

@@ -61,26 +61,13 @@ def to_mvar_or_mlinexpr(s: pl.Series) -> gp.MVar | gp.MLinExpr | np.ndarray:
 
     """
     if s.dtype == pl.Object:
-        has_linexpr = False
-        has_var = False
-
-        for val in s:
-            if isinstance(val, gp.LinExpr):
-                has_linexpr = True
-                break  # return immediately
-            elif isinstance(val, gp.Var):
-                has_var = True
-
-        if has_linexpr:
-            # Contains LinExpr → MLinExpr
-            return gp.MLinExpr._from_linexprs(s)  # ty:ignore[unresolved-attribute]
-        elif has_var:
-            # Contains only Var → MVar (fastest)
-            try:
+        first: Any = s.first(ignore_nulls=True)
+        if isinstance(first, gp.Var):
+            if s.null_count() == 0:
                 return gp.MVar(s)  # ty:ignore[too-many-positional-arguments]
-            except AttributeError:
-                # Fallback if MVar construction fails
-                return gp.MLinExpr._from_linexprs(s)  # ty:ignore[unresolved-attribute]
+            return gp.MLinExpr._from_linexprs(s.to_numpy())  # ty:ignore[unresolved-attribute]
+        if isinstance(first, gp.LinExpr):
+            return gp.MLinExpr(s.to_numpy())  # ty:ignore[too-many-positional-arguments]
 
     return s.to_numpy()
 

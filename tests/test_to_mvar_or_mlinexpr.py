@@ -2,6 +2,7 @@
 
 import gurobipy as gp
 import polars as pl
+import pytest
 
 import xplor
 from xplor.gurobi import XplorGurobi
@@ -34,6 +35,7 @@ class TestToMVarOrMLinExpr:
 
         assert isinstance(result, gp.MLinExpr)
 
+    @pytest.mark.skip("Don't want to support that anymore.")
     def test_mixed_var_linexpr_returns_mlinexpr(self):
         """Mixed Var/LinExpr series should return MLinExpr."""
         xmodel = XplorGurobi()
