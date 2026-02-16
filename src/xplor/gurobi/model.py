@@ -183,6 +183,25 @@ class XplorGurobi(XplorModel[gp.Model, gp.Var, gp.LinExpr]):
                             df, *constr_exprs, indices=indices, **named_constr_exprs
                         )
 
+        # Helper function to recursively evaluate expressions
+        def evaluate_expr(expr: Any) -> Any:
+            """Recursively evaluate VarExpr, pl.Expr, or literal values to Gurobi objects."""
+            if isinstance(expr, VarExpr):
+                if expr._nodes:
+                    # VarExpr contains operations - recursively evaluate sub-expressions
+                    sub_expr_repr, sub_exprs = expr.parse()
+                    sub_gp_arrays = [evaluate_expr(sub_expr) for sub_expr in sub_exprs]
+                    return sub_expr_repr.evaluate(tuple(sub_gp_arrays))
+                # Simple variable reference without operations
+                col_name = expr.meta.output_name()
+                return to_mvar_or_mlinexpr(df[col_name])
+            if isinstance(expr, pl.Expr):
+                # Polars expression: evaluate and convert
+                result = df.select(expr).to_series()
+                return to_mvar_or_mlinexpr(result)
+            # Literal value
+            return expr
+
         # Optimized path: process constraints directly
         # Combine positional and named constraints
         all_constrs = {str(expr): expr for expr in constr_exprs}
@@ -191,22 +210,8 @@ class XplorGurobi(XplorModel[gp.Model, gp.Var, gp.LinExpr]):
         for constr_name, constr_expr in all_constrs.items():
             # Parse the constraint to get operator and operands
             expr_repr, exprs = constr_expr.parse()
-            # Evaluate each sub-expression to Gurobi objects
-            gp_arrays = []
-            for expr in exprs:
-                if isinstance(expr, VarExpr):
-                    # Variable expression: get column name and convert to MVar
-                    col_name = expr.meta.output_name()
-                    gp_obj = to_mvar_or_mlinexpr(df[col_name])
-                elif isinstance(expr, pl.Expr):
-                    # Polars expression: evaluate and convert
-                    result = df.select(expr).to_series()
-                    gp_obj = to_mvar_or_mlinexpr(result)
-                else:
-                    # Literal value
-                    gp_obj = expr
-
-                gp_arrays.append(gp_obj)
+            # Evaluate each sub-expression to Gurobi objects (with recursion)
+            gp_arrays = [evaluate_expr(expr) for expr in exprs]
 
             # Evaluate the constraint using the expression representation
             gp_constr = expr_repr.evaluate(tuple(gp_arrays))

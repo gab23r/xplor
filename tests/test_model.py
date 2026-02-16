@@ -225,3 +225,41 @@ def test_nonlinear_functions():
     assert exp_values.to_list() == pytest.approx(expected_exp, rel=1e-4)
     assert log_values.to_list() == pytest.approx(expected_log, rel=1e-4)
     assert sqrt_values.to_list() == pytest.approx(expected_sqrt, rel=1e-4)
+
+
+def test_recursive_varexpr_evaluation():
+    """Test that VarExpr containing other VarExpr objects are correctly evaluated.
+
+    This tests the recursive evaluation in add_constrs() to ensure that
+    nested VarExpr expressions like (var.x + var.y * 2) are properly handled.
+    """
+    xmodel = XplorGurobi()
+
+    # Create a simple optimization problem
+    df = pl.DataFrame({"id": [0, 1], "coeff": [2.0, 3.0]}).with_columns(
+        xmodel.add_vars("x", lb=0, ub=10),
+        xmodel.add_vars("y", lb=0, ub=10),
+        xmodel.add_vars("z", lb=0, ub=100),
+    )
+
+    # Add constraints with nested VarExpr:
+    # 1. z == x + y * coeff (nested VarExpr: var.y * pl.col("coeff"))
+    # 2. x + y <= 5 (simple VarExpr addition)
+    xmodel.add_constrs(df, nested_expr=xplor.var.z == xplor.var.x + xplor.var.y * pl.col("coeff"))
+    xmodel.add_constrs(df, simple_sum=xplor.var.x + xplor.var.y <= 5)
+
+    # Set x and y to specific values to verify the constraint works
+    xmodel.add_constrs(df, set_x=xplor.var.x == 1.0)
+    xmodel.add_constrs(df, set_y=xplor.var.y == 2.0)
+
+    xmodel.optimize()
+
+    # Verify results: z should equal x + y * coeff = 1 + 2*coeff
+    x_values = df.select(xmodel.read_values(pl.col("x"))).to_series()
+    y_values = df.select(xmodel.read_values(pl.col("y"))).to_series()
+    z_values = df.select(xmodel.read_values(pl.col("z"))).to_series()
+
+    assert x_values.to_list() == pytest.approx([1.0, 1.0], rel=1e-4)
+    assert y_values.to_list() == pytest.approx([2.0, 2.0], rel=1e-4)
+    # z = x + y * coeff = 1 + 2*2 = 5 for row 0, 1 + 2*3 = 7 for row 1
+    assert z_values.to_list() == pytest.approx([5.0, 7.0], rel=1e-4)
