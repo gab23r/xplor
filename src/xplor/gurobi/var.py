@@ -395,6 +395,39 @@ class GurobiVarExpr(VarExpr):
         """
         return self._create_nl_func("sqrt")
 
+    def to_linexpr(self) -> Self:
+        """Convert Gurobi variables to linear expressions.
+
+        Transforms a column of gp.Var objects into gp.LinExpr objects.
+        This is useful when you need to explicitly work with linear expressions
+        instead of variables.
+
+        Returns
+        -------
+        Self
+            New GurobiVarExpr with variables converted to linear expressions.
+
+        Examples
+        --------
+        >>> df.with_columns(x_as_linexpr=xmodel.var.x.to_linexpr())
+
+        """
+
+        def var_to_linexpr(series: pl.Series) -> pl.Series:
+            return pl.Series(
+                gp.MLinExpr._from_linexprs(series)._learr.tolist(),  # ty:ignore[unresolved-attribute]
+                dtype=pl.Object,
+            )
+
+        return self.__class__(
+            self.map_batches(
+                var_to_linexpr,
+                return_dtype=pl.Object,
+                returns_scalar=False,
+            ),
+            name=str(self),
+        )
+
 
 class _ProxyGurobiVarExpr:
     def __call__(self, name: str, /, *more_names: str) -> GurobiVarExpr:

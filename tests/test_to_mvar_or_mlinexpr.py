@@ -95,3 +95,22 @@ class TestToMVarOrMLinExpr:
         result = to_mvar_or_mlinexpr(s_numeric)
 
         assert isinstance(result, type(s_numeric.to_numpy()))
+
+    def test_to_linexpr_converts_vars_to_linexprs(self):
+        """Test that to_linexpr converts gp.Var to gp.LinExpr."""
+        xmodel = XplorGurobi()
+        df = pl.DataFrame(height=3).with_columns(xmodel.add_vars("x"))
+
+        # Convert Var column to LinExpr using to_linexpr method
+        df_with_linexpr = df.with_columns(x_linexpr=xmodel.var.x.to_linexpr())
+
+        # Check that the result is LinExpr, not Var
+        x_linexprs = df_with_linexpr["x_linexpr"].to_list()
+        assert all(isinstance(expr, gp.LinExpr) for expr in x_linexprs)
+        assert len(x_linexprs) == 3
+
+        # Verify that the LinExprs are equivalent to the original Vars
+        # (each LinExpr should represent 1.0 * var)
+        for linexpr in x_linexprs:
+            assert linexpr.size() == 1  # Should contain exactly one variable
+            assert linexpr.getConstant() == 0.0  # No constant term
