@@ -14,31 +14,6 @@ if TYPE_CHECKING:
     import numpy as np
 
 
-def first_gurobi_expr(
-    s: pl.Series,
-) -> gp.Var | gp.LinExpr | gp.NLExpr | gp.QuadExpr | gp.GenExpr | None:
-    """Find the first Gurobi expression object in a Series.
-
-    Loops through series values to find the first Gurobi object, which is more
-    efficient than using Series.first(ignore_nulls=True) for Object dtype series.
-
-    Parameters
-    ----------
-    s : pl.Series
-        Series potentially containing Gurobi expression objects.
-
-    Returns
-    -------
-    gp.Var | gp.LinExpr | gp.NLExpr | gp.QuadExpr | gp.GenExpr | None
-        First Gurobi expression found, or None if no Gurobi objects exist.
-
-    """
-    for val in s:
-        if isinstance(val, (gp.Var, gp.LinExpr, gp.NLExpr, gp.QuadExpr, gp.GenExpr)):
-            return val
-    return None
-
-
 def to_mvar_or_mlinexpr(s: pl.Series) -> gp.MVar | gp.MLinExpr | np.ndarray:
     """Convert a Polars Series to Gurobi MVar, MLinExpr, or NumPy array.
 
@@ -106,10 +81,10 @@ class GurobiVarExpr(VarExpr):
 
             # MLinExpr needs to be dispatched into list of LinExpr
             if isinstance(result, gp.MLinExpr):
-                if result._learr is not None:  # ty:ignore[unresolved-attribute]
-                    result = result._learr.tolist()  # ty:ignore[unresolved-attribute]
+                if result._learr is not None:
+                    result = result._learr.tolist()
                 else:
-                    result = list(map(lambda r: r.item(), result))  # noqa: C417  # ty:ignore[invalid-argument-type]
+                    result = list(map(lambda r: r.item(), result))  # noqa: C417
             return pl.Series(result, dtype=pl.Object)
 
         return pl.map_batches(
@@ -180,9 +155,15 @@ class GurobiVarExpr(VarExpr):
             var_series_list = series[:-1]
 
             # Map unique group values to group IDs
+            # Waiting for: https://github.com/pola-rs/polars/issues/25382
             unique_groups = group_series.unique(maintain_order=True)
-            # Convert struct values to tuples for hashing
-            group_ids = (group_series.rank("dense") - 1).to_numpy()
+            group_ids = (
+                group_series.to_frame("by")
+                .join(
+                    unique_groups.to_frame("by").with_row_index(), on="by", maintain_order="left"
+                )["index"]
+                .to_numpy()
+            )
             n_groups = len(unique_groups)
             n_vars = len(series[0])
 
