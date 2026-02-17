@@ -14,8 +14,39 @@ if TYPE_CHECKING:
     import numpy as np
 
 
+def first_gurobi_expr(
+    s: pl.Series,
+) -> gp.Var | gp.LinExpr | gp.NLExpr | gp.QuadExpr | gp.GenExpr | None:
+    """Find the first Gurobi expression object in a Series.
+
+    Loops through series values to find the first Gurobi object, which is more
+    efficient than using Series.first(ignore_nulls=True) for Object dtype series.
+
+    Parameters
+    ----------
+    s : pl.Series
+        Series potentially containing Gurobi expression objects.
+
+    Returns
+    -------
+    gp.Var | gp.LinExpr | gp.NLExpr | gp.QuadExpr | gp.GenExpr | None
+        First Gurobi expression found, or None if no Gurobi objects exist.
+
+    """
+    for val in s:
+        if isinstance(val, (gp.Var, gp.LinExpr, gp.NLExpr, gp.QuadExpr, gp.GenExpr)):
+            return val
+    return None
+
+
 def to_mvar_or_mlinexpr(s: pl.Series) -> gp.MVar | gp.MLinExpr | np.ndarray:
     """Convert a Polars Series to Gurobi MVar, MLinExpr, or NumPy array.
+
+    Scans the entire series to determine the appropriate Gurobi type:
+    - If ANY element is GenExpr/QuadExpr/NLExpr → numpy array (row-by-row processing)
+    - Else if ANY element is LinExpr → MLinExpr (vectorized)
+    - Else if ANY element is Var → MVar (fastest vectorized)
+    - Else → numpy array (numeric values)
 
     Parameters
     ----------
@@ -28,11 +59,15 @@ def to_mvar_or_mlinexpr(s: pl.Series) -> gp.MVar | gp.MLinExpr | np.ndarray:
         Vectorized Gurobi array or NumPy array.
 
     """
-    first: Any = s.first(ignore_nulls=True)
-    if isinstance(first, gp.Var):
-        return gp.MVar(s)  # ty:ignore[too-many-positional-arguments]
-    if isinstance(first, gp.LinExpr):
-        return gp.MLinExpr(s.to_numpy())  # ty:ignore[too-many-positional-arguments]
+    if s.dtype == pl.Object:
+        first: Any = s.first(ignore_nulls=True)
+        if isinstance(first, gp.Var):
+            if s.null_count() == 0:
+                return gp.MVar(s)  # ty:ignore[too-many-positional-arguments]
+            return gp.MLinExpr._from_linexprs(s.to_numpy())  # ty:ignore[unresolved-attribute]
+        if isinstance(first, gp.LinExpr):
+            return gp.MLinExpr(s.to_numpy())  # ty:ignore[too-many-positional-arguments]
+
     return s.to_numpy()
 
 
@@ -69,9 +104,12 @@ class GurobiVarExpr(VarExpr):
             gp_obj = tuple(map(to_mvar_or_mlinexpr, series))
             result = expr_repr.evaluate(gp_obj)
 
-            # Unfortunalty `MLinExpr` need to be disptach into list of LinExpr from the python side.
+            # MLinExpr needs to be dispatched into list of LinExpr
             if isinstance(result, gp.MLinExpr):
-                result = [r.item() for r in result]
+                if result._learr is not None:  # ty:ignore[unresolved-attribute]
+                    result = result._learr.tolist()  # ty:ignore[unresolved-attribute]
+                else:
+                    result = list(map(lambda r: r.item(), result))  # noqa: C417  # ty:ignore[invalid-argument-type]
             return pl.Series(result, dtype=pl.Object)
 
         return pl.map_batches(
@@ -80,38 +118,150 @@ class GurobiVarExpr(VarExpr):
             return_dtype=pl.Object,
         )
 
-    def sum(
+    def sum_by(
         self,
+        by: str | pl.Expr | list[str],
     ) -> Self:
+        """Compute grouped sum using Gurobi's matrix API for optimal performance.
+
+        Uses Gurobi's matrix API for efficient grouped aggregations via sparse
+        matrix multiplication. Returns one row per group, matching Polars'
+        groupby semantics.
+
+        Parameters
+        ----------
+        by : str | pl.Expr | list[str]
+            Column(s) to group by. Accepts:
+            - String: column name (e.g., "w")
+            - pl.Expr: expression (e.g., pl.col("w"))
+            - list[str]: multiple columns (e.g., ["w", "region"])
+
+        Returns
+        -------
+        Self
+            One row per group with group sums
+
+        Examples
+        --------
+        >>> # Grouped sum - returns one row per group
+        >>> df.select(group_sum=xmodel.var.x.sum_by("w"))
+
+        >>> # Weighted grouped sum
+        >>> df.select((xmodel.var.x * pl.col("cost")).sum_by("w"))
+
+        >>> # Multi-column groupby
+        >>> df.select(xmodel.var.x.sum_by(["w", "region"]))
+
+        >>> # Use in constraints
+        >>> df_grouped = df.select(sum=xmodel.var.x.sum_by("w"))
+        >>> xmodel.add_constrs(df_grouped, limit=xplor.var.sum <= 500)
+
+        """
+        # Convert string or list of strings to pl.Expr
+        if isinstance(by, str):
+            group_by = pl.col(by)
+        elif isinstance(by, list):
+            group_by = pl.struct(by)
+        else:
+            group_by = by
+        import numpy as np
+        import scipy.sparse as sp
+
+        name = str(self) if self.meta.is_column() else f"({self})"
+        expr_repr, exprs = self.parse()
+
+        # Add the group_by expression to the list of expressions to evaluate
+        exprs_with_group = [*exprs, group_by]
+
+        # Build function that uses sparse matrix for groupby
+        def gurobi_grouped_sum(series: Sequence[pl.Series], **kwargs: Any) -> pl.Series:
+            # Last series is the group column
+            group_series = series[-1]
+            var_series_list = series[:-1]
+
+            # Map unique group values to group IDs
+            unique_groups = group_series.unique(maintain_order=True)
+            # Convert struct values to tuples for hashing
+            group_ids = (group_series.rank("dense") - 1).to_numpy()
+            n_groups = len(unique_groups)
+            n_vars = len(series[0])
+
+            # Build sparse matrix for groupby aggregation
+            col = np.arange(n_vars)
+            row = group_ids
+            val = np.ones(n_vars)
+            A = sp.csr_matrix((val, (row, col)), shape=(n_groups, n_vars))
+
+            gp_obj = tuple(map(to_mvar_or_mlinexpr, var_series_list))
+            result = expr_repr.evaluate(gp_obj)
+            group_sums = A @ result
+
+            if group_sums._learr is not None:
+                result = group_sums._learr.tolist()
+            else:
+                result = list(map(lambda r: r.item(), group_sums))  # noqa: C417
+
+            # Return group-level results (one per group, not broadcast)
+            return pl.Series(result, dtype=pl.Object)
+
+        return self.__class__(
+            pl.map_batches(
+                exprs_with_group,
+                gurobi_grouped_sum,
+                return_dtype=pl.Object,
+                returns_scalar=False,
+            ),
+            name=name + f".sum_by({by})",
+        )
+
+    def sum(self) -> Self:
         """Vectorized sum using Gurobi MVar/MLinExpr for optimal performance.
 
         Optimized pattern: (var * coeff).sum() uses gp.LinExpr(coeffs, vars)
         directly, which is much faster than element-wise multiplication + sum.
 
+        Returns
+        -------
+        Self
+            Scalar aggregation (single sum)
+
         Examples
         --------
-        >>> df.group_by('group').agg(xmodel.var("x").sum())
-        >>> df.select(total=(var.x + var.y).sum())  # Vectorized!
-        >>> df.select(total=(var.x * pl.col("cost")).sum())  # Optimized LinExpr!
+        >>> # Regular sum
+        >>> df.select(total=xmodel.var.x.sum())
+
+        >>> # Weighted sum
+        >>> df.select(total=(xmodel.var.x * pl.col("cost")).sum())
+
+        >>> # For grouped aggregations, use sum_by()
+        >>> df.select(group_sum=xmodel.var.x.sum_by("w"))
 
         """
+        # Implementation for non-grouped sum
         name = str(self) if self.meta.is_column() else f"({self})"
         expr_repr, exprs = self.parse()
+        indices = expr_repr.extract_indices()
+        # If no extra nodes (e.g. var.x.sum()), gp.quicksum is faster
+        if len(self._nodes) == 0:
+
+            def gurobi_vectorized_sum(series: Sequence[pl.Series]) -> Any:
+                return gp.quicksum(series[indices[0]])
+
         # Optimization: Detect (var * coeff).sum() pattern and use gp.LinExpr directly
         # This is ~10x faster than element-wise multiplication followed by sum
-        if len(self._nodes) == 1 and self._nodes[0].operator in ("__mul__", "__rmul__"):
+        elif len(self._nodes) == 1 and self._nodes[0].operator in ("__mul__", "__rmul__"):
 
             def gurobi_vectorized_sum(series: Sequence[pl.Series]) -> Any:
                 # If coeff are Object, fast path can't be taken
-                if (len(series) >= 2 and series[1].dtype is not pl.Object) or (
-                    isinstance(self._nodes[0].operand, float)
+                if (len(indices) >= 2 and series[indices[1]].dtype is not pl.Object) or (
+                    isinstance(self._nodes[0].operand, float | int)
                 ):
                     operand = (
-                        series[1].to_list()
+                        series[indices[1]].to_list()
                         if len(series) > 1
-                        else len(series[0]) * [self._nodes[0].operand]
+                        else len(series[indices[0]]) * [self._nodes[0].operand]
                     )
-                    result = gp.LinExpr(operand, series[0].to_list())  # type: ignore
+                    result = gp.LinExpr(operand, series[indices[0]].to_list())  # type: ignore
 
                 else:
                     gp_obj = tuple(map(to_mvar_or_mlinexpr, series))
@@ -122,7 +272,7 @@ class GurobiVarExpr(VarExpr):
             def gurobi_vectorized_sum(series: Sequence[pl.Series]) -> Any:
                 gp_obj = tuple(map(to_mvar_or_mlinexpr, series))
                 result = expr_repr.evaluate(gp_obj)
-                return pl.Series([result.sum()], dtype=pl.Object)
+                return pl.Series([result.sum().item()], dtype=pl.Object)
 
         _, exprs = self.parse()
         return self.__class__(
@@ -351,6 +501,39 @@ class GurobiVarExpr(VarExpr):
 
         """
         return self._create_nl_func("sqrt")
+
+    def to_linexpr(self) -> Self:
+        """Convert Gurobi variables to linear expressions.
+
+        Transforms a column of gp.Var objects into gp.LinExpr objects.
+        This is useful when you need to explicitly work with linear expressions
+        instead of variables.
+
+        Returns
+        -------
+        Self
+            New GurobiVarExpr with variables converted to linear expressions.
+
+        Examples
+        --------
+        >>> df.with_columns(x_as_linexpr=xmodel.var.x.to_linexpr())
+
+        """
+
+        def var_to_linexpr(series: pl.Series) -> pl.Series:
+            return pl.Series(
+                gp.MLinExpr._from_linexprs(series)._learr.tolist(),  # ty:ignore[unresolved-attribute]
+                dtype=pl.Object,
+            )
+
+        return self.__class__(
+            self.map_batches(
+                var_to_linexpr,
+                return_dtype=pl.Object,
+                returns_scalar=False,
+            ),
+            name=str(self),
+        )
 
 
 class _ProxyGurobiVarExpr:

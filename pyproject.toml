@@ -10,7 +10,6 @@ license = { text = "MIT" }
 requires-python = ">=3.11"
 dependencies = [
     "polars>=1.36.1",
-    "scipy[gurobi]>=1.17.0",
 ]
 keywords = [
     "optimization",
@@ -29,6 +28,7 @@ Documentation = "https://gab23r.github.io/xplor/"
 [project.optional-dependencies]
 gurobi = [
     "gurobipy>=11.0.3",
+    "scipy>=1.17.0" # to use the matrix api of gurobi
 ]
 ortools = [
     "ortools>=9.11.4210",
