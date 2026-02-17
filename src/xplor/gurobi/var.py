@@ -7,7 +7,6 @@ import gurobipy.nlfunc
 import polars as pl
 
 from xplor.exprs import VarExpr
-from xplor.gurobi.utils import mlinexpr_to_linexpr_list
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -107,7 +106,10 @@ class GurobiVarExpr(VarExpr):
 
             # MLinExpr needs to be dispatched into list of LinExpr
             if isinstance(result, gp.MLinExpr):
-                result = mlinexpr_to_linexpr_list(result)
+                if result._learr is not None:  # ty:ignore[unresolved-attribute]
+                    result = result._learr.tolist()  # ty:ignore[unresolved-attribute]
+                else:
+                    result = list(map(lambda r: r.item(), result))  # noqa: C417  # ty:ignore[invalid-argument-type]
             return pl.Series(result, dtype=pl.Object)
 
         return pl.map_batches(
@@ -116,21 +118,126 @@ class GurobiVarExpr(VarExpr):
             return_dtype=pl.Object,
         )
 
-    def sum(
+    def sum_by(
         self,
+        by: str | pl.Expr | list[str],
     ) -> Self:
+        """Compute grouped sum using Gurobi's matrix API for optimal performance.
+
+        Uses Gurobi's matrix API for efficient grouped aggregations via sparse
+        matrix multiplication. Returns one row per group, matching Polars'
+        groupby semantics.
+
+        Parameters
+        ----------
+        by : str | pl.Expr | list[str]
+            Column(s) to group by. Accepts:
+            - String: column name (e.g., "w")
+            - pl.Expr: expression (e.g., pl.col("w"))
+            - list[str]: multiple columns (e.g., ["w", "region"])
+
+        Returns
+        -------
+        Self
+            One row per group with group sums
+
+        Examples
+        --------
+        >>> # Grouped sum - returns one row per group
+        >>> df.select(group_sum=xmodel.var.x.sum_by("w"))
+
+        >>> # Weighted grouped sum
+        >>> df.select((xmodel.var.x * pl.col("cost")).sum_by("w"))
+
+        >>> # Multi-column groupby
+        >>> df.select(xmodel.var.x.sum_by(["w", "region"]))
+
+        >>> # Use in constraints
+        >>> df_grouped = df.select(sum=xmodel.var.x.sum_by("w"))
+        >>> xmodel.add_constrs(df_grouped, limit=xplor.var.sum <= 500)
+
+        """
+        # Convert string or list of strings to pl.Expr
+        if isinstance(by, str):
+            group_by = pl.col(by)
+        elif isinstance(by, list):
+            group_by = pl.struct(by)
+        else:
+            group_by = by
+        import numpy as np
+        import scipy.sparse as sp
+
+        name = str(self) if self.meta.is_column() else f"({self})"
+        expr_repr, exprs = self.parse()
+
+        # Add the group_by expression to the list of expressions to evaluate
+        exprs_with_group = [*exprs, group_by]
+
+        # Build function that uses sparse matrix for groupby
+        def gurobi_grouped_sum(series: Sequence[pl.Series], **kwargs: Any) -> pl.Series:
+            # Last series is the group column
+            group_series = series[-1]
+            var_series_list = series[:-1]
+
+            # Map unique group values to group IDs
+            unique_groups = group_series.unique(maintain_order=True)
+            # Convert struct values to tuples for hashing
+            group_ids = (group_series.rank("dense") - 1).to_numpy()
+            n_groups = len(unique_groups)
+            n_vars = len(series[0])
+
+            # Build sparse matrix for groupby aggregation
+            col = np.arange(n_vars)
+            row = group_ids
+            val = np.ones(n_vars)
+            A = sp.csr_matrix((val, (row, col)), shape=(n_groups, n_vars))
+
+            gp_obj = tuple(map(to_mvar_or_mlinexpr, var_series_list))
+            result = expr_repr.evaluate(gp_obj)
+            group_sums = A @ result
+
+            if group_sums._learr is not None:
+                result = group_sums._learr.tolist()
+            else:
+                result = list(map(lambda r: r.item(), group_sums))  # noqa: C417
+
+            # Return group-level results (one per group, not broadcast)
+            return pl.Series(result, dtype=pl.Object)
+
+        return self.__class__(
+            pl.map_batches(
+                exprs_with_group,
+                gurobi_grouped_sum,
+                return_dtype=pl.Object,
+                returns_scalar=False,
+            ),
+            name=name + f".sum_by({by})",
+        )
+
+    def sum(self) -> Self:
         """Vectorized sum using Gurobi MVar/MLinExpr for optimal performance.
 
         Optimized pattern: (var * coeff).sum() uses gp.LinExpr(coeffs, vars)
         directly, which is much faster than element-wise multiplication + sum.
 
+        Returns
+        -------
+        Self
+            Scalar aggregation (single sum)
+
         Examples
         --------
-        >>> df.group_by('group').agg(xmodel.var("x").sum())
-        >>> df.select(total=(var.x + var.y).sum())  # Vectorized!
-        >>> df.select(total=(var.x * pl.col("cost")).sum())  # Optimized LinExpr!
+        >>> # Regular sum
+        >>> df.select(total=xmodel.var.x.sum())
+
+        >>> # Weighted sum
+        >>> df.select(total=(xmodel.var.x * pl.col("cost")).sum())
+
+        >>> # For grouped aggregations, use sum_by()
+        >>> df.select(group_sum=xmodel.var.x.sum_by("w"))
 
         """
+        # Implementation for non-grouped sum
         name = str(self) if self.meta.is_column() else f"({self})"
         expr_repr, exprs = self.parse()
         indices = expr_repr.extract_indices()

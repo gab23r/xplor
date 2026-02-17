@@ -6,7 +6,12 @@ from typing import TYPE_CHECKING, Any
 import gurobipy as gp
 import polars as pl
 
-from xplor.gurobi.var import _ProxyGurobiVarExpr, first_gurobi_expr, to_mvar_or_mlinexpr
+from xplor.gurobi.var import (
+    GurobiVarExpr,
+    _ProxyGurobiVarExpr,
+    first_gurobi_expr,
+    to_mvar_or_mlinexpr,
+)
 from xplor.model import XplorModel
 from xplor.types import cast_to_dtypes
 
@@ -373,6 +378,81 @@ class XplorGurobi(XplorModel[gp.Model, gp.Var, gp.LinExpr]):
 
     def _linear_expr(self, arg1: Sequence[float], arg2: Sequence[gp.Var]) -> gp.LinExpr:
         return gp.LinExpr(arg1, arg2)
+
+    def sum_by(
+        self,
+        df: pl.DataFrame,
+        *args: GurobiVarExpr,
+        by: str | list[str],
+        **kwargs: GurobiVarExpr,
+    ) -> pl.DataFrame:
+        """Group and aggregate with Gurobi matrix API, including grouping columns.
+
+        Automatically applies `.sum_by(by)` to GurobiVarExpr expressions,
+        eliminating the need to repeat grouping columns in each aggregation.
+
+        Parameters
+        ----------
+        df : pl.DataFrame
+            Input DataFrame with variables
+        by : str | list[str]
+            Column(s) to group by
+        *args
+            Positional aggregations
+        **kwargs
+            Named aggregations
+
+        Returns
+        -------
+        pl.DataFrame
+            DataFrame with grouping columns + aggregated columns
+
+        Examples
+        --------
+        >>> # Positional arguments with auto-naming (cleanest!)
+        >>> df.pipe(xmodel.sum_by, xmodel.var.x, by=["w"])
+        >>> # Result columns: ["w", "x"]
+        >>>
+        >>> # Multiple positional arguments
+        >>> df.pipe(
+        ...     xmodel.sum_by,
+        ...     xmodel.var.x,
+        ...     xmodel.var.y,
+        ...     xmodel.var.x * pl.col("coeff"),
+        ...     by=["w"],
+        ... )
+        >>> # Result columns: ["w", "x", "y", "x * coeff"]
+        >>>
+        >>> # Named arguments for custom column names
+        >>> df_grouped = xmodel.sum_by(
+        ...     df,
+        ...     x_sum=xmodel.var.x,  # Automatically sum_by(["ata_group", "week"])
+        ...     weighted=xmodel.var.x * pl.col("w"),  # Also automatic
+        ...     by=["ata_group", "week"],
+        ... )
+        >>>
+        >>> # Can also use explicit .sum_by() if needed
+        >>> df_grouped = xmodel.sum_by(
+        ...     df,
+        ...     x_sum=xmodel.var.x.sum_by(["w"]),
+        ...     by=["w"],
+        ... )
+        >>>
+        >>> # Can join on grouping columns
+        >>> df_grouped.join(other_df, on=["ata_group", "week"])
+
+        """
+        # Get unique group combinations
+        by_cols = [by] if isinstance(by, str) else by
+        df_groups = df.select(
+            *[c if isinstance(c, pl.Expr) else pl.col(c) for c in by_cols]
+        ).unique(maintain_order=True)
+
+        sum_by_exprs = [expr.sum_by(by) for expr in args] + [
+            arg.sum_by(by).alias(name) for name, arg in kwargs.items()
+        ]
+
+        return pl.concat([df_groups, df.select(sum_by_exprs)], how="horizontal")
 
     @cached_property
     def var(self) -> _ProxyGurobiVarExpr:
