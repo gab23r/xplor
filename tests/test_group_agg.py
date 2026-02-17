@@ -2,7 +2,7 @@
 
 import polars as pl
 
-from xplor.gurobi import XplorGurobi
+from xplor.gurobi import XplorGurobi, sum_by, var
 
 
 def test_sum_by_with_grouping_columns():
@@ -17,7 +17,7 @@ def test_sum_by_with_grouping_columns():
 
     # Use sum_by to get grouped results with grouping columns
     # Explicit .sum_by(...) required
-    df_grouped = xmodel.sum_by(df, by=["ata_group", "week"], sum=xmodel.var.x)
+    df_grouped = sum_by(df, by=["ata_group", "week"], sum=var.x)
 
     # Should have grouping columns + aggregated column
     assert "ata_group" in df_grouped.columns
@@ -49,7 +49,7 @@ def test_sum_by_can_join():
     )
 
     # Group and aggregate - explicit .sum_by(...)
-    df_grouped = xmodel.sum_by(df, by=["ata_group", "week"], sum=xmodel.var.x)
+    df_grouped = sum_by(df, by=["ata_group", "week"], sum=var.x)
 
     # Should be able to join on grouping columns
     result = df_grouped.join(capacity_df, on=["ata_group", "week"], how="inner")
@@ -69,7 +69,7 @@ def test_sum_by_single_column():
     )
 
     # Single column grouping - explicit .sum_by(...)
-    df_grouped = xmodel.sum_by(df, by="group", total=xmodel.var.x)
+    df_grouped = sum_by(df, by="group", total=var.x)
 
     assert "group" in df_grouped.columns
     assert "total" in df_grouped.columns
@@ -88,12 +88,12 @@ def test_sum_by_auto_aggregation():
     )
 
     # Automatic aggregation - no need to call .sum_by() on each expression!
-    df_grouped = xmodel.sum_by(
+    df_grouped = sum_by(
         df,
         by="w",
-        x_sum=xmodel.var.x,  # Automatically applies .sum_by("w")
-        y_sum=xmodel.var.y,  # Automatically applies .sum_by("w")
-        weighted=xmodel.var.x * pl.col("coeff"),  # Also automatic
+        x_sum=var.x,  # Automatically applies .sum_by("w")
+        y_sum=var.y,  # Automatically applies .sum_by("w")
+        weighted=var.x * pl.col("coeff"),  # Also automatic
     )
 
     assert "w" in df_grouped.columns
@@ -115,9 +115,9 @@ def test_sum_by_positional_args():
 
     # Positional arguments - auto-named based on variable
     df_grouped = df.pipe(
-        xmodel.sum_by,
-        xmodel.var.x,  # Will be named "x"
-        xmodel.var.y,  # Will be named "y"
+        sum_by,
+        var.x,  # Will be named "x"
+        var.y,  # Will be named "y"
         by="w",
     )
 
