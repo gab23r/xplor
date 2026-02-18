@@ -90,7 +90,7 @@ class XplorModel(ABC, Generic[ModelType, VarType, ExpressionType]):
         obj: float | str | pl.Expr | None = None,
         indices: pl.Expr | list[str] | None = None,
         vtype: VariableType = "CONTINUOUS",
-        priority: int = 0,
+        priority: int | pl.Expr = 0,
     ) -> pl.Expr:
         """Define and return a Var expression for optimization variables.
 
@@ -116,7 +116,7 @@ class XplorModel(ABC, Generic[ModelType, VarType, ExpressionType]):
             Used to format the internal variable names (e.g., 'x[1,2]').
         vtype: VariableType
             The type of the variable (CONTINUOUS, INTEGER, or BINARY).
-        priority: int, default 0
+        priority: int | pl.Expr, default 0
             Multi-objective optimization priority. Higher priority numbers are optimized
             FIRST (priority 2 before priority 1 before priority 0). All objectives with
             the same priority are combined into a single weighted sum. Currently only
@@ -157,11 +157,10 @@ class XplorModel(ABC, Generic[ModelType, VarType, ExpressionType]):
                 parse_into_expr(lb).alias("lb"),
                 parse_into_expr(ub).alias("ub"),
                 parse_into_expr(obj).alias("obj"),
+                parse_into_expr(priority).cast(pl.Int64).alias("priority"),
                 pl.format(f"{name}[{{}}]", indices).alias("name"),
             ],
-            lambda s: self._add_vars_wrapper(
-                series_to_df(s), name=name, vtype=vtype, priority=priority
-            ),
+            lambda s: self._add_vars_wrapper(series_to_df(s), name=name, vtype=vtype),
             return_dtype=pl.Object,
         ).alias(name)
 
@@ -426,11 +425,10 @@ class XplorModel(ABC, Generic[ModelType, VarType, ExpressionType]):
         df: pl.DataFrame,
         name: str,
         vtype: VariableType = "CONTINUOUS",
-        priority: int = 0,
     ) -> pl.Series:
         """Return a series of variables.
 
-        `df` should contains columns: ["lb", "ub", "obj, "name"].
+        `df` should contains columns: ["lb", "ub", "obj", "priority", "name"].
         `priority` indicates the optimization priority (higher values optimized first).
         """
         lb = df["lb"].to_list() if df["lb"].dtype != pl.Null else None
@@ -439,24 +437,28 @@ class XplorModel(ABC, Generic[ModelType, VarType, ExpressionType]):
 
         match vtype:
             case "INTEGER":
-                vars_ = self._add_integer_vars(names, lb, ub)
+                vars_ = pl.Series(self._add_integer_vars(names, lb, ub), dtype=pl.Object)
             case "BINARY":
-                vars_ = self._add_binary_vars(names)
+                vars_ = pl.Series(self._add_binary_vars(names), dtype=pl.Object)
             case _:
-                vars_ = self._add_continuous_vars(names, lb, ub)
+                vars_ = pl.Series(self._add_continuous_vars(names, lb, ub), dtype=pl.Object)
 
         # Accumulate objective coefficients for this priority level
         if df["obj"].dtype != pl.Null:
-            # Build linear expression: sum(coeff * var)
-            print(df["obj"].to_list(), vars_)
-            obj_expr = self._linear_expr(df["obj"].to_list(), vars_)
+            # Group by priority and accumulate objective expressions
+            # Get unique priorities and convert to int (Polars expressions may produce floats)
+            for priority, obj_p, vars_p in (
+                df.with_columns(var=vars_).group_by("priority").agg(pl.col.obj, pl.col.var).rows()
+            ):
+                # Build linear expression for this priority
+                obj_expr = self._linear_expr(obj_p, vars_p)
 
-            if priority not in self._priority_obj_terms:
-                self._priority_obj_terms[priority] = obj_expr
-            else:
-                self._priority_obj_terms[priority] += obj_expr  # ty:ignore[unsupported-operator]
+                if priority not in self._priority_obj_terms:
+                    self._priority_obj_terms[priority] = obj_expr
+                else:
+                    self._priority_obj_terms[priority] += obj_expr  # ty:ignore[unsupported-operator]
 
-        self.vars[name] = pl.Series(vars_, dtype=pl.Object)
+        self.vars[name] = vars_
         self.var_types[name] = vtype
         return self.vars[name]
 

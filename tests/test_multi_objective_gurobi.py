@@ -268,3 +268,122 @@ def test_hierarchical_optimization():
     # B has higher revenue per unit (20 vs 10), so should be selected first
     # Total qty constraint is 12, so should maximize B first: A=2, B=10 (revenue = 220)
     assert result.to_list() == pytest.approx([2.0, 10.0], rel=1e-4)
+
+
+def test_priority_as_expression():
+    """Test that priority can be specified as a Polars expression.
+
+    This test verifies that different rows can have different priority values
+    when priority is specified as a pl.Expr (e.g., pl.col("priority_level")).
+    """
+    xmodel = XplorGurobi()
+
+    # Create a DataFrame where each variable has its own priority level
+    df = pl.DataFrame(
+        {
+            "id": [0, 1, 2],
+            "priority_level": [2, 1, 0],  # Different priority for each variable
+            "obj_coeff": [100.0, 10.0, 1.0],  # Different coefficients
+            "lb": [0.0, 0.0, 0.0],
+            "ub": [10.0, 10.0, 10.0],
+        }
+    )
+
+    # Add variables with priority as an expression
+    df = df.with_columns(
+        x=xmodel.add_vars(
+            "x", lb="lb", ub="ub", obj=pl.col("obj_coeff"), priority=pl.col("priority_level")
+        )
+    )
+
+    xmodel.optimize()
+
+    # Verify that all three priorities were registered
+    obj_values = xmodel.get_multi_objective_values()
+    assert len(obj_values) == 3
+    assert 2 in obj_values
+    assert 1 in obj_values
+    assert 0 in obj_values
+
+    # All variables should be at their upper bound (maximizing negative objective)
+    result = df.select(xmodel.read_values(pl.col("x"))).to_series()
+    assert result.to_list() == pytest.approx([0.0, 0.0, 0.0], rel=1e-4)
+
+
+def test_priority_expression_with_constraints():
+    """Test priority as expression with optimization constraints.
+
+    This test creates a scenario where different variables have different priorities
+    and verifies that the solver respects the priority hierarchy when optimizing.
+    """
+    xmodel = XplorGurobi()
+
+    # Scenario: We have products with different priorities and want to optimize
+    # Priority 2: High-priority product (maximize allocation)
+    # Priority 1: Medium-priority product (maximize allocation)
+    # Priority 0: Low-priority product (maximize allocation)
+    # Total capacity constraint: sum of all <= 10
+    df = pl.DataFrame(
+        {
+            "product": ["high", "medium", "low"],
+            "priority": [2, 1, 0],
+            "target": [5.0, 8.0, 10.0],  # Target allocation for each
+        }
+    )
+
+    # Add variables with negative coefficients to maximize allocation
+    df = df.with_columns(
+        allocation=xmodel.add_vars(
+            "allocation",
+            lb=0.0,
+            ub=pl.col("target"),
+            obj=-1.0,  # Maximize allocation
+            priority=pl.col("priority"),
+        )
+    )
+
+    # Add capacity constraint
+    df.pipe(xmodel.add_constrs, xplor.var.allocation.sum() <= 10.0)
+
+    xmodel.optimize()
+
+    # Verify solution respects priority hierarchy:
+    # - Priority 2 (high): Should get full allocation (5.0)
+    # - Priority 1 (medium): Should get remaining capacity (5.0 out of 8.0 target)
+    # - Priority 0 (low): Should get 0 (no capacity left)
+    result = df.select(xmodel.read_values(pl.col("allocation"))).to_series()
+    assert result.to_list() == pytest.approx([5.0, 5.0, 0.0], rel=1e-4)
+
+    # Verify objective values for each priority
+    obj_values = xmodel.get_multi_objective_values()
+    assert obj_values[2] == pytest.approx(-5.0, rel=1e-4)  # High priority: -5.0
+    assert obj_values[1] == pytest.approx(-5.0, rel=1e-4)  # Medium priority: -5.0
+    assert obj_values[0] == pytest.approx(0.0, rel=1e-4)  # Low priority: 0.0
+
+
+def test_mixed_constant_and_expression_priority():
+    """Test that constant and expression-based priorities can be mixed.
+
+    This ensures backward compatibility when some variables use constant priority
+    and others use pl.Expr priority.
+    """
+    xmodel = XplorGurobi()
+
+    # Create first set of variables with constant priority
+    df1 = pl.DataFrame({"id": [0, 1]})
+    df1 = df1.with_columns(x1=xmodel.add_vars("x1", lb=0, ub=10, obj=1.0, priority=2))
+
+    # Create second set with expression-based priority
+    df2 = pl.DataFrame({"id": [0, 1], "priority_col": [1, 0]})
+    df2 = df2.with_columns(
+        x2=xmodel.add_vars("x2", lb=0, ub=10, obj=2.0, priority=pl.col("priority_col"))
+    )
+
+    xmodel.optimize()
+
+    # Verify all three priority levels were created
+    obj_values = xmodel.get_multi_objective_values()
+    assert len(obj_values) == 3
+    assert 2 in obj_values
+    assert 1 in obj_values
+    assert 0 in obj_values
