@@ -52,8 +52,6 @@ all = [
 requires = ["uv_build>=0.9.15,<0.10.0"]
 build-backend = "uv_build"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/xplor"]
 
 [dependency-groups]
 dev = [
