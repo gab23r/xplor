@@ -7,11 +7,19 @@ import gurobipy.nlfunc
 import polars as pl
 
 from xplor.exprs import VarExpr
+from xplor.types import ExprExtension
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     import numpy as np
+
+
+def _is_object_dtype(dtype: pl.DataType) -> bool:
+    """Check if dtype is Object or an Extension with Object storage."""
+    return dtype == pl.Object or (
+        isinstance(dtype, pl.Extension) and dtype.ext_storage() == pl.Object
+    )
 
 
 def to_mvar_or_mlinexpr(s: pl.Series) -> gp.MVar | gp.MLinExpr | np.ndarray:
@@ -34,7 +42,7 @@ def to_mvar_or_mlinexpr(s: pl.Series) -> gp.MVar | gp.MLinExpr | np.ndarray:
         Vectorized Gurobi array or NumPy array.
 
     """
-    if s.dtype == pl.Object:
+    if _is_object_dtype(s.dtype):
         first: Any = s.first(ignore_nulls=True)
         if isinstance(first, gp.Var):
             if s.null_count() == 0:
@@ -85,12 +93,12 @@ class GurobiVarExpr(VarExpr):
                     result = result._learr.tolist()
                 else:
                     result = list(map(lambda r: r.item(), result))  # noqa: C417
-            return pl.Series(result, dtype=pl.Object)
+            return pl.Series(result, dtype=pl.Object).ext.to(ExprExtension)
 
         return pl.map_batches(
             exprs,
             vectorized_eval,
-            return_dtype=pl.Object,
+            return_dtype=ExprExtension,
         )
 
     def sum_by(
@@ -183,13 +191,13 @@ class GurobiVarExpr(VarExpr):
                 result = list(map(lambda r: r.item(), group_sums))  # noqa: C417
 
             # Return group-level results (one per group, not broadcast)
-            return pl.Series(result, dtype=pl.Object)
+            return pl.Series(result, dtype=ExprExtension)
 
         return self.__class__(
             pl.map_batches(
                 exprs_with_group,
                 gurobi_grouped_sum,
-                return_dtype=pl.Object,
+                return_dtype=ExprExtension,
                 returns_scalar=False,
             ),
             name=name + f".sum_by({by})",
@@ -234,20 +242,24 @@ class GurobiVarExpr(VarExpr):
 
             def gurobi_vectorized_sum(series: Sequence[pl.Series]) -> Any:
                 # If coeff are Object, fast path can't be taken
-                if (len(indices) >= 2 and series[indices[1]].dtype is not pl.Object) or (
-                    isinstance(self._nodes[0].operand, float | int)
-                ):
+                if (
+                    (len(indices) >= 2 and series[indices[1]].to_physical().dtype is not pl.Object)
+                    and series[indices[0]].dtype._string_repr().startswith("var.")
+                ) or (isinstance(self._nodes[0].operand, float | int)):
                     operand = (
                         series[indices[1]].to_list()
                         if len(series) > 1
                         else len(series[indices[0]]) * [self._nodes[0].operand]
                     )
+                    print(operand)
+                    print(series[indices[0]].to_list())
                     result = gp.LinExpr(operand, series[indices[0]].to_list())  # type: ignore
+                    return pl.Series([result], dtype=pl.Object)
 
                 else:
                     gp_obj = tuple(map(to_mvar_or_mlinexpr, series))
                     result = expr_repr.evaluate(gp_obj)
-                return pl.Series([result], dtype=pl.Object)
+                    return pl.Series([result.sum().item()], dtype=pl.Object)
         else:
             # Standard vectorized sum for other expression patterns
             def gurobi_vectorized_sum(series: Sequence[pl.Series]) -> Any:
@@ -262,7 +274,7 @@ class GurobiVarExpr(VarExpr):
                 gurobi_vectorized_sum,
                 return_dtype=pl.Object,
                 returns_scalar=True,
-            ),
+            ).ext.to(ExprExtension),  # https://github.com/pola-rs/polars/issues/27518
             name=name + ".sum()",
         )
 
@@ -282,7 +294,7 @@ class GurobiVarExpr(VarExpr):
         return self.__class__(
             self.map_batches(
                 lambda series: gp.any_(*series),  # ty:ignore
-                return_dtype=pl.Object,
+                return_dtype=ExprExtension,
                 returns_scalar=True,
             ),
             name=f"{self}.any()",
@@ -304,7 +316,7 @@ class GurobiVarExpr(VarExpr):
         return self.__class__(
             self.map_batches(
                 lambda series: gp.abs_(*series),
-                return_dtype=pl.Object,
+                return_dtype=ExprExtension,
                 returns_scalar=True,
             ),
             name=f"{self}.abs()",
@@ -329,7 +341,7 @@ class GurobiVarExpr(VarExpr):
         return self.__class__(
             self.map_batches(
                 lambda series: gp.and_(*series),
-                return_dtype=pl.Object,
+                return_dtype=ExprExtension,
                 returns_scalar=True,
             ),
             name=f"{self}.all()",
@@ -351,7 +363,7 @@ class GurobiVarExpr(VarExpr):
         return self.__class__(
             self.map_batches(
                 lambda series: gp.max_(*series),
-                return_dtype=pl.Object,
+                return_dtype=ExprExtension,
                 returns_scalar=True,
             ),
             name=f"{self}.max()",
@@ -373,7 +385,7 @@ class GurobiVarExpr(VarExpr):
         return self.__class__(
             self.map_batches(
                 lambda series: gp.min_(*series),
-                return_dtype=pl.Object,
+                return_dtype=ExprExtension,
                 returns_scalar=True,
             ),
             name=f"{self}.min()",
@@ -399,12 +411,12 @@ class GurobiVarExpr(VarExpr):
             mvar = to_mvar_or_mlinexpr(series)
             result = nl_func(mvar)
             # MNLExpr is iterable like MLinExpr - extract elements using .item()
-            return pl.Series([r.item() for r in result], dtype=pl.Object)
+            return pl.Series([r.item() for r in result], dtype=ExprExtension)
 
         return self.__class__(
             self.map_batches(
                 vectorized_nl_func,
-                return_dtype=pl.Object,
+                return_dtype=ExprExtension,
                 returns_scalar=False,
             ),
             name=f"{func_name}({self})",
@@ -504,13 +516,13 @@ class GurobiVarExpr(VarExpr):
         def var_to_linexpr(series: pl.Series) -> pl.Series:
             return pl.Series(
                 gp.MLinExpr._from_linexprs(series)._learr.tolist(),  # ty:ignore[unresolved-attribute]
-                dtype=pl.Object,
+                dtype=ExprExtension,
             )
 
         return self.__class__(
             self.map_batches(
                 var_to_linexpr,
-                return_dtype=pl.Object,
+                return_dtype=ExprExtension,
                 returns_scalar=False,
             ),
             name=str(self),

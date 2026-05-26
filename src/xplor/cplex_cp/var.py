@@ -50,6 +50,7 @@ from docplex.cp.modeler import (
 
 from xplor._utils import series_to_df
 from xplor.exprs import ConstrExpr, VarExpr
+from xplor.types import ExprExtension
 
 if TYPE_CHECKING:
     from docplex.cp.model import CpoModel
@@ -98,14 +99,14 @@ class IntervalVarExpr(VarExpr):
         def func(df: pl.DataFrame) -> pl.Series:
             return pl.Series(
                 [operation_func(row[0], row[1]) for row in df.rows()],
-                dtype=pl.Object,
+                dtype=ExprExtension,
             )
 
         return IntervalVarExpr(
             pl.map_batches(
                 [self, other],
                 lambda series: func(series_to_df(series)),
-                return_dtype=pl.Object,
+                return_dtype=ExprExtension,
             )
         )
 
@@ -138,14 +139,14 @@ class IntervalVarExpr(VarExpr):
         def func(df: pl.DataFrame) -> pl.Series:
             return pl.Series(
                 [constraint_func(row[0], row[1], row[2]) for row in df.rows()],
-                dtype=pl.Object,
+                dtype=ExprExtension,
             )
 
         return ConstrExpr(
             pl.map_batches(
                 [self, other, delay],
                 lambda series: func(series_to_df(series)),
-                return_dtype=pl.Object,
+                return_dtype=ExprExtension,
             )
         )
 
@@ -316,9 +317,9 @@ class IntervalVarExpr(VarExpr):
             # Create a single no_overlap constraint
             constraint = no_overlap(intervals)
             # Return as a single-element series
-            return pl.Series([constraint], dtype=pl.Object)
+            return pl.Series([constraint], dtype=ExprExtension)
 
-        return ConstrExpr(self.map_batches(func, return_dtype=pl.Object))
+        return ConstrExpr(self.map_batches(func, return_dtype=ExprExtension))
 
     def start_of(self) -> VarExpr:
         """Get the start time of interval variables.
@@ -333,7 +334,7 @@ class IntervalVarExpr(VarExpr):
         >>> xmodel.add_constrs(df, start_constraint=var.task_iv.start_of() >= 10)  # doctest: +SKIP
 
         """
-        return IntervalVarExpr(self.map_elements(start_of, return_dtype=pl.Object))
+        return IntervalVarExpr(self.map_elements(start_of, return_dtype=ExprExtension))
 
     def end_of(self) -> IntervalVarExpr:
         """Get the end time of interval variables.
@@ -348,7 +349,7 @@ class IntervalVarExpr(VarExpr):
         >>> xmodel.add_constrs(df, end_constraint=var.task_iv.end_of() <= 100)  # doctest: +SKIP
 
         """
-        return IntervalVarExpr(self.map_elements(end_of, return_dtype=pl.Object))
+        return IntervalVarExpr(self.map_elements(end_of, return_dtype=ExprExtension))
 
     def length_of(self) -> IntervalVarExpr:
         """Get the length of interval variables.
@@ -365,7 +366,7 @@ class IntervalVarExpr(VarExpr):
         >>> xmodel.add_constrs(df, length_constraint=var.task_iv.length_of() == 5)  # doctest: +SKIP
 
         """
-        return IntervalVarExpr(self.map_elements(length_of, return_dtype=pl.Object))
+        return IntervalVarExpr(self.map_elements(length_of, return_dtype=ExprExtension))
 
     def size_of(self) -> IntervalVarExpr:
         """Get the size (duration) of interval variables.
@@ -382,7 +383,7 @@ class IntervalVarExpr(VarExpr):
         >>> xmodel.add_constrs(df, size_constraint=var.task_iv.size_of() >= pl.col("min_duration"))  # doctest: +SKIP
 
         """
-        return IntervalVarExpr(self.map_elements(size_of, return_dtype=pl.Object))
+        return IntervalVarExpr(self.map_elements(size_of, return_dtype=ExprExtension))
 
     def presence_of(self) -> IntervalVarExpr:
         """Get the presence status of optional interval variables.
@@ -397,7 +398,7 @@ class IntervalVarExpr(VarExpr):
         >>> xmodel.add_constrs(df, presence_constraint=var.task_iv.presence_of() == 1)  # doctest: +SKIP
 
         """
-        return IntervalVarExpr(self.map_elements(presence_of, return_dtype=pl.Object))
+        return IntervalVarExpr(self.map_elements(presence_of, return_dtype=ExprExtension))
 
     # Mathematical operations - Unary
     def abs(self) -> IntervalVarExpr:
@@ -413,7 +414,7 @@ class IntervalVarExpr(VarExpr):
         >>> xmodel.add_constrs(df, abs_constraint=var.task_iv.start_of().abs() <= 100)  # doctest: +SKIP
 
         """
-        return IntervalVarExpr(self.map_elements(cp_abs, return_dtype=pl.Object))
+        return IntervalVarExpr(self.map_elements(cp_abs, return_dtype=ExprExtension))
 
     def square(self) -> IntervalVarExpr:
         """Square of the expression.
@@ -428,7 +429,7 @@ class IntervalVarExpr(VarExpr):
         >>> xmodel.add_constrs(df, square_constraint=var.task_iv.start_of().square() <= 100)  # doctest: +SKIP
 
         """
-        return IntervalVarExpr(self.map_elements(square, return_dtype=pl.Object))
+        return IntervalVarExpr(self.map_elements(square, return_dtype=ExprExtension))
 
     def cp_log(self) -> IntervalVarExpr:
         """Natural logarithm of the expression (CP version).
@@ -443,7 +444,7 @@ class IntervalVarExpr(VarExpr):
         >>> xmodel.add_constrs(df, log_constraint=var.task_iv.start_of().cp_log() >= 1)  # doctest: +SKIP
 
         """
-        return IntervalVarExpr(self.map_elements(log, return_dtype=pl.Object))
+        return IntervalVarExpr(self.map_elements(log, return_dtype=ExprExtension))
 
     def exponent(self) -> IntervalVarExpr:
         """Exponential (e^x) of the expression.
@@ -458,7 +459,7 @@ class IntervalVarExpr(VarExpr):
         >>> xmodel.add_constrs(df, exp_constraint=var.task_iv.start_of().exponent() <= 1000)  # doctest: +SKIP
 
         """
-        return IntervalVarExpr(self.map_elements(exponent, return_dtype=pl.Object))
+        return IntervalVarExpr(self.map_elements(exponent, return_dtype=ExprExtension))
 
     def ceil(self) -> IntervalVarExpr:
         """Ceiling of the expression.
@@ -473,7 +474,7 @@ class IntervalVarExpr(VarExpr):
         >>> xmodel.add_constrs(df, ceil_constraint=var.task_iv.start_of().ceil() == pl.col("rounded_start"))  # doctest: +SKIP
 
         """
-        return IntervalVarExpr(self.map_elements(ceil, return_dtype=pl.Object))
+        return IntervalVarExpr(self.map_elements(ceil, return_dtype=ExprExtension))
 
     def floor(self) -> IntervalVarExpr:
         """Floor of the expression.
@@ -488,7 +489,7 @@ class IntervalVarExpr(VarExpr):
         >>> xmodel.add_constrs(df, floor_constraint=var.task_iv.start_of().floor() >= 0)  # doctest: +SKIP
 
         """
-        return IntervalVarExpr(self.map_elements(floor, return_dtype=pl.Object))
+        return IntervalVarExpr(self.map_elements(floor, return_dtype=ExprExtension))
 
     def cp_round(self) -> IntervalVarExpr:
         """Round to nearest integer (CP version).
@@ -503,7 +504,7 @@ class IntervalVarExpr(VarExpr):
         >>> xmodel.add_constrs(df, round_constraint=var.task_iv.start_of().cp_round() == pl.col("start"))  # doctest: +SKIP
 
         """
-        return IntervalVarExpr(self.map_elements(cp_round, return_dtype=pl.Object))
+        return IntervalVarExpr(self.map_elements(cp_round, return_dtype=ExprExtension))
 
     def trunc(self) -> IntervalVarExpr:
         """Truncate to integer (remove fractional part).
@@ -518,7 +519,7 @@ class IntervalVarExpr(VarExpr):
         >>> xmodel.add_constrs(df, trunc_constraint=var.task_iv.start_of().trunc() >= 0)  # doctest: +SKIP
 
         """
-        return IntervalVarExpr(self.map_elements(trunc, return_dtype=pl.Object))
+        return IntervalVarExpr(self.map_elements(trunc, return_dtype=ExprExtension))
 
     def sgn(self) -> IntervalVarExpr:
         """Sign of the expression (-1, 0, or 1).
@@ -533,7 +534,7 @@ class IntervalVarExpr(VarExpr):
         >>> xmodel.add_constrs(df, sign_constraint=var.task_iv.start_of().sgn() >= 0)  # doctest: +SKIP
 
         """
-        return IntervalVarExpr(self.map_elements(sgn, return_dtype=pl.Object))
+        return IntervalVarExpr(self.map_elements(sgn, return_dtype=ExprExtension))
 
     # Mathematical operations - Binary
     def power(self, exponent: VarExpr | pl.Expr | float) -> VarExpr:
@@ -614,9 +615,9 @@ class IntervalVarExpr(VarExpr):
         def func(series: pl.Series) -> pl.Series:
             # Sum aggregates all values into a single result
             total = cp_sum(series.to_list())
-            return pl.Series([total], dtype=pl.Object)
+            return pl.Series([total], dtype=ExprExtension)
 
-        return VarExpr(self.map_batches(func, return_dtype=pl.Object))
+        return VarExpr(self.map_batches(func, return_dtype=ExprExtension))
 
 
 class _ProxyCplexCPVarExpr:

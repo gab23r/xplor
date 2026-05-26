@@ -6,6 +6,7 @@ import polars as pl
 from docplex.mp.model import Model
 
 from xplor.exprs import VarExpr
+from xplor.types import ExprExtension
 
 
 class CplexVarExpr(VarExpr):
@@ -32,7 +33,7 @@ class CplexVarExpr(VarExpr):
         name = str(self) if self.meta.is_column() else f"({self})"
         return self.__class__(
             self.map_batches(
-                lambda d: Model().sum(d.to_list()), return_dtype=pl.Object, returns_scalar=True
+                lambda d: Model().sum(d.to_list()), return_dtype=ExprExtension, returns_scalar=True
             ),
             name=name + ".sum()",
         )
@@ -51,7 +52,7 @@ class CplexVarExpr(VarExpr):
 
         """
         return self.__class__(
-            self.map_elements(lambda d: abs(d), return_dtype=pl.Object),
+            self.map_elements(lambda d: abs(d), return_dtype=ExprExtension),
             name=f"{self}.abs()",
         )
 

@@ -242,8 +242,5 @@ class XplorMathOpt(XplorModel[Model, Variable, LinearSum]):
         """
         result_values = self.result.variable_values()
         return name.map_batches(
-            lambda d: cast_to_dtypes(
-                pl.Series([result_values.get(v) for v in d]),
-                self.var_types.get(d.name, "CONTINUOUS"),
-            )
+            lambda d: cast_to_dtypes(pl.Series([result_values.get(v) for v in d]), d.dtype)
         )

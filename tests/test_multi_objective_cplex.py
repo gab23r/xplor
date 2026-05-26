@@ -65,7 +65,7 @@ def test_two_priority_levels():
     xmodel.optimize()
 
     # Priority 1 should be optimized first, so sum of x1 should be maximized to 1.5
-    result = df.select(xmodel.read_values(pl.selectors.object())).to_dict(as_series=False)
+    result = df.select(xmodel.read_values(pl.col("x1", "x2"))).to_dict(as_series=False)
 
     # Sum of x1 should be 1.5 (constraint limit) since priority 1 maximizes it
     # x2 should be 0 since priority 0 minimizes it

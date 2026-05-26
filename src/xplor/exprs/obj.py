@@ -8,6 +8,7 @@ import polars as pl
 import polars._plr as plr
 
 from xplor._utils import expr_ends_with_alias, map_rows, series_to_df
+from xplor.types import ExprExtension
 
 OPERATOR_MAP: dict[str, str] = {
     "__add__": "+",
@@ -142,7 +143,7 @@ class ObjExpr(pl.Expr):
         return pl.map_batches(
             exprs,
             lambda s: map_rows(series_to_df(s, rename=True), expr_repr.evaluate),
-            return_dtype=pl.Object,
+            return_dtype=ExprExtension,
         )
 
     @property
@@ -178,7 +179,7 @@ class ObjExpr(pl.Expr):
     def __rmul__(self, other: pl.Expr | float) -> Self:  # ty:ignore[invalid-method-override]
         return self._append_node("__rmul__", other)
 
-    def __eq__(self, other: pl.Expr | float) -> Self:  # type: ignore[override]
+    def __eq__(self, other: pl.Expr | float) -> Self:  # ty:ignore
         return self._append_node("__eq__", other)
 
     def __le__(self, other: pl.Expr | float) -> Self:  # ty:ignore[invalid-method-override]

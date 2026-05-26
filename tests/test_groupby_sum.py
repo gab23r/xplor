@@ -6,6 +6,7 @@ import pytest
 
 import xplor
 from xplor.gurobi import XplorGurobi
+from xplor.types import ExprExtension
 
 
 def test_simple_groupby_sum():
@@ -22,7 +23,7 @@ def test_simple_groupby_sum():
 
     # Should return one row per group
     assert len(result) == 10  # 10 groups, not 100 rows
-    assert result["group_sum"].dtype == pl.Object
+    assert result["group_sum"].dtype == ExprExtension
 
 
 def test_weighted_groupby_sum():
@@ -39,7 +40,7 @@ def test_weighted_groupby_sum():
     result = df.select(weighted_sum=(xmodel.var.x * pl.col("coeff")).sum_by("w"))
 
     assert len(result) == 10  # 10 groups
-    assert result["weighted_sum"].dtype == pl.Object
+    assert result["weighted_sum"].dtype == ExprExtension
 
 
 def test_groupby_sum_in_constraints():
@@ -86,7 +87,7 @@ def test_groupby_sum_complex_expression():
     result = df.select(sum_xy=(xmodel.var.x + xmodel.var.y).sum_by("w"))
 
     assert len(result) == 10  # 10 groups
-    assert result["sum_xy"].dtype == pl.Object
+    assert result["sum_xy"].dtype == ExprExtension
 
 
 def test_groupby_sum_multi_column():
@@ -104,7 +105,7 @@ def test_groupby_sum_multi_column():
 
     # Should have 10 * 5 = 50 unique groups
     assert len(result) == 50
-    assert result["group_sum"].dtype == pl.Object
+    assert result["group_sum"].dtype == ExprExtension
 
 
 def test_groupby_sum_comparison_with_polars():
