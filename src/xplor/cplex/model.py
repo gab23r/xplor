@@ -221,10 +221,7 @@ class XplorCplex(XplorModel[Model, Var, LinearExpr]):
             return float(v)
 
         return name.map_batches(
-            lambda d: cast_to_dtypes(
-                pl.Series([_extract(v) for v in d]),
-                self.var_types.get(d.name, "CONTINUOUS"),
-            )
+            lambda d: cast_to_dtypes(pl.Series([_extract(v) for v in d]), d.dtype)
         )
 
     @cached_property

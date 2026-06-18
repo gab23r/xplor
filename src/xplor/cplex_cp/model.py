@@ -19,7 +19,7 @@ from docplex.cp.model import (
 from xplor._utils import parse_into_expr, series_to_df
 from xplor.cplex_cp.var import IntervalVarExpr, _ProxyCplexCPVarExpr
 from xplor.model import XplorModel
-from xplor.types import cast_to_dtypes
+from xplor.types import ExprExtension, cast_to_dtypes
 
 if TYPE_CHECKING:
     from docplex.cp.expression import CpoIntervalVar
@@ -167,8 +167,7 @@ class XplorCplexCP(XplorModel[CpoModel, CpoVariable, CpoExpr]):
             else:
                 # Regular variable - return scalar value
                 return cast_to_dtypes(
-                    pl.Series([_extract_regular(v) for v in series]),
-                    self.var_types.get(series.name, "CONTINUOUS"),
+                    pl.Series([_extract_regular(v) for v in series]), series.dtype
                 )
 
         return name.map_batches(_batch_extract)
@@ -247,7 +246,7 @@ class XplorCplexCP(XplorModel[CpoModel, CpoVariable, CpoExpr]):
                 pl.format(f"{name}[{{}}]", pl.row_index()).alias("var_name"),
             ],
             lambda s: self._add_interval_vars_wrapper(series_to_df(s), name),
-            return_dtype=pl.Object,
+            return_dtype=ExprExtension,
         ).alias(name)
 
     def _add_interval_vars_wrapper(self, df: pl.DataFrame, name: str) -> pl.Series:
@@ -282,7 +281,7 @@ class XplorCplexCP(XplorModel[CpoModel, CpoVariable, CpoExpr]):
         ]
 
         # Store interval variables
-        result = pl.Series(name, intervals, dtype=pl.Object)
+        result = pl.Series(name, intervals, dtype=ExprExtension)
         self.vars[name] = result
         # Use internal marker for interval variables (not part of public VariableType)
         self.var_types[name] = "_INTERVAL_CP"  # type: ignore

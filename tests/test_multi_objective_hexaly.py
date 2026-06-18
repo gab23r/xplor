@@ -74,7 +74,7 @@ def test_two_priority_levels():
     assert len(xmodel._priority_obj_terms) == 2
 
     # Priority 1 should be optimized first, so sum of x1 should be minimized to 0
-    result = df.select(xmodel.read_values(pl.selectors.object())).to_dict(as_series=False)
+    result = df.select(xmodel.read_values(pl.col("x1", "x2"))).to_dict(as_series=False)
 
     # Sum of x1 should be 0 since priority 1 minimizes it
     # x2 should be 1.5 since priority 0 maximizes it (after priority 1 is satisfied)

@@ -7,13 +7,15 @@ from typing import TYPE_CHECKING, Any, Generic
 import polars as pl
 
 from xplor._utils import parse_into_expr, series_to_df
+from xplor.exprs import VarExpr
 from xplor.exprs.var import _ProxyVarExpr
+from xplor.types import get_var_extension
 from xplor.typing import ExpressionType, ModelType, VariableType, VarType
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from xplor.exprs import ConstrExpr, VarExpr
+    from xplor.exprs import ConstrExpr
     from xplor.exprs.obj import ExpressionRepr
 
 
@@ -91,7 +93,7 @@ class XplorModel(ABC, Generic[ModelType, VarType, ExpressionType]):
         indices: pl.Expr | list[str] | None = None,
         vtype: VariableType = "CONTINUOUS",
         priority: int | pl.Expr = 0,
-    ) -> pl.Expr:
+    ) -> VarExpr:
         """Define and return a Var expression for optimization variables.
 
         This method generates a Polars expression that, when consumed (e.g., via
@@ -152,17 +154,19 @@ class XplorModel(ABC, Generic[ModelType, VarType, ExpressionType]):
 
         """
         indices = pl.concat_str(pl.row_index() if indices is None else indices, separator=",")
-        return pl.map_batches(
-            [
-                parse_into_expr(lb).alias("lb"),
-                parse_into_expr(ub).alias("ub"),
-                parse_into_expr(obj).alias("obj"),
-                parse_into_expr(priority).cast(pl.Int64).alias("priority"),
-                pl.format(f"{name}[{{}}]", indices).alias("name"),
-            ],
-            lambda s: self._add_vars_wrapper(series_to_df(s), name=name, vtype=vtype),
-            return_dtype=pl.Object,
-        ).alias(name)
+        return VarExpr(
+            pl.map_batches(
+                [
+                    parse_into_expr(lb).alias("lb"),
+                    parse_into_expr(ub).alias("ub"),
+                    parse_into_expr(obj).alias("obj"),
+                    parse_into_expr(priority).cast(pl.Int64).alias("priority"),
+                    pl.format(f"{name}[{{}}]", indices).alias("name"),
+                ],
+                lambda s: self._add_vars_wrapper(series_to_df(s), name=name, vtype=vtype),
+                return_dtype=get_var_extension(vtype),
+            ).alias(name)
+        )
 
     def add_constrs(
         self,
@@ -434,14 +438,15 @@ class XplorModel(ABC, Generic[ModelType, VarType, ExpressionType]):
         lb = df["lb"].to_list() if df["lb"].dtype != pl.Null else None
         ub = df["ub"].to_list() if df["ub"].dtype != pl.Null else None
         names = df["name"].to_list()
+        dtype = get_var_extension(vtype)
 
         match vtype:
             case "INTEGER":
-                vars_ = pl.Series(self._add_integer_vars(names, lb, ub), dtype=pl.Object)
+                vars_ = pl.Series(self._add_integer_vars(names, lb, ub), dtype=dtype)
             case "BINARY":
-                vars_ = pl.Series(self._add_binary_vars(names), dtype=pl.Object)
+                vars_ = pl.Series(self._add_binary_vars(names), dtype=dtype)
             case _:
-                vars_ = pl.Series(self._add_continuous_vars(names, lb, ub), dtype=pl.Object)
+                vars_ = pl.Series(self._add_continuous_vars(names, lb, ub), dtype=dtype)
 
         # Accumulate objective coefficients for this priority level
         if df["obj"].dtype != pl.Null:
@@ -463,7 +468,7 @@ class XplorModel(ABC, Generic[ModelType, VarType, ExpressionType]):
         return self.vars[name]
 
     def _linear_expr(self, arg1: Sequence[float], arg2: Sequence[VarType]) -> ExpressionType:
-        return getattr(self.model, "sum", sum)(x * y for x, y in zip(arg1, arg2, strict=False))
+        return getattr(self.model, "sum", sum)(x * y for x, y in zip(arg1, arg2, strict=False))  # type: ignore
 
     def minimize(
         self,

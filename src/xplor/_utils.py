@@ -3,6 +3,8 @@ from typing import Any
 
 import polars as pl
 
+from xplor.types import ExprExtension
+
 
 def expr_ends_with_alias(expr: pl.Expr) -> bool:
     if expr.meta.has_multiple_outputs():
@@ -39,7 +41,7 @@ def map_rows(df: pl.DataFrame, f: Callable[[tuple], Any]) -> pl.Series:
     This function is the equivalent of `pl.Dataframe.map_rows`, but works with `pl.Object`.
     See: https://github.com/pola-rs/polars/issues/25570
     """
-    return pl.Series([f(r) for r in df.rows()], dtype=pl.Object)
+    return pl.Series([f(r) for r in df.rows()], dtype=ExprExtension)
 
 
 def series_to_df(series: Sequence[pl.Series], *, rename: bool = False) -> pl.DataFrame:

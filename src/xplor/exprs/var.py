@@ -6,6 +6,7 @@ import polars as pl
 
 from xplor.exprs import ConstrExpr
 from xplor.exprs.obj import ObjExpr
+from xplor.types import ExprExtension
 
 
 class VarExpr(ObjExpr):
@@ -32,7 +33,7 @@ class VarExpr(ObjExpr):
         name = str(self) if self.meta.is_column() else f"({self})"
         return self.__class__(
             self.map_batches(
-                lambda d: sum(d.to_list()), return_dtype=pl.Object, returns_scalar=True
+                lambda d: sum(d.to_list()), return_dtype=ExprExtension, returns_scalar=True
             ),
             name=name + ".sum()",
         )
