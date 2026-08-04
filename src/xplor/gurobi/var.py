@@ -148,7 +148,15 @@ class GurobiVarExpr(VarExpr):
         else:
             group_by = by
         import numpy as np
-        import scipy.sparse as sp
+
+        try:
+            import scipy.sparse as sp
+        except ImportError as e:
+            msg = (
+                "scipy is required for `sum_by`. "
+                "Install it with `pip install xplor[scipy]` or `pip install scipy`."
+            )
+            raise ImportError(msg) from e
 
         name = str(self) if self.meta.is_column() else f"({self})"
         expr_repr, exprs = self.parse()

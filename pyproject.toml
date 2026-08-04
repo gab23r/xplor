@@ -1,6 +1,6 @@
 [project]
 name = "xplor"
-version = "0.7.0"
+version = "0.7.1"
 description = "A unified framework for Operation Research modeling with polars"
 readme = "README.md"
 authors = [
@@ -28,7 +28,9 @@ Documentation = "https://gab23r.github.io/xplor/"
 [project.optional-dependencies]
 gurobi = [
     "gurobipy>=11.0.3",
-    "scipy>=1.17.0" # to use the matrix api of gurobi
+]
+scipy = [
+    "scipy>=1.17.0", # to use the matrix api of gurobi (e.g. var.sum_by)
 ]
 ortools = [
     "ortools>=9.11.4210",
@@ -43,6 +45,7 @@ cplex = [
 ]
 all = [
     "xplor[gurobi]",
+    "xplor[scipy]",
     "xplor[ortools]",
     "xplor[hexaly]",
     "xplor[cplex]",

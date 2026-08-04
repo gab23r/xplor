@@ -73,7 +73,7 @@ name = "cffi"
 version = "2.0.0"
 source = { registry = "https://pypi.python.org/simple" }
 dependencies = [
-    { name = "pycparser", marker = "implementation_name != 'PyPy'" },
+    { name = "pycparser" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/eb/56/b1ba7935a17738ae8453301356628e8147c79dbb825bcbc73dc7401f9846/cffi-2.0.0.tar.gz", hash = "sha256:44d1b5909021139fe36001ae048dbdde8214afa20200eda0f64c068cac5d5529", size = 523588, upload-time = "2025-09-08T23:24:04.541Z" }
 wheels = [
@@ -1094,7 +1094,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.python.org/simple" }
 dependencies = [
-    { name = "ptyprocess", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "ptyprocess" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
@@ -1745,7 +1745,7 @@ wheels = [
 
 [[package]]
 name = "xplor"
-version = "0.7.0"
+version = "0.7.1"
 source = { editable = "." }
 dependencies = [
     { name = "polars" },
@@ -1766,13 +1766,15 @@ cplex = [
 ]
 gurobi = [
     { name = "gurobipy" },
-    { name = "scipy" },
 ]
 hexaly = [
     { name = "hexaly" },
 ]
 ortools = [
     { name = "ortools" },
+]
+scipy = [
+    { name = "scipy" },
 ]
 
 [package.dev-dependencies]
@@ -1801,13 +1803,14 @@ requires-dist = [
     { name = "hexaly", marker = "extra == 'hexaly'", specifier = ">=14.0.20251203", index = "https://pip.hexaly.com/" },
     { name = "ortools", marker = "extra == 'ortools'", specifier = ">=9.11.4210" },
     { name = "polars", specifier = ">=1.36.1" },
-    { name = "scipy", marker = "extra == 'gurobi'", specifier = ">=1.17.0" },
+    { name = "scipy", marker = "extra == 'scipy'", specifier = ">=1.17.0" },
     { name = "xplor", extras = ["cplex"], marker = "extra == 'all'" },
     { name = "xplor", extras = ["gurobi"], marker = "extra == 'all'" },
     { name = "xplor", extras = ["hexaly"], marker = "extra == 'all'" },
     { name = "xplor", extras = ["ortools"], marker = "extra == 'all'" },
+    { name = "xplor", extras = ["scipy"], marker = "extra == 'all'" },
 ]
-provides-extras = ["gurobi", "ortools", "hexaly", "cplex", "all"]
+provides-extras = ["gurobi", "scipy", "ortools", "hexaly", "cplex", "all"]
 
 [package.metadata.requires-dev]
 dev = [
